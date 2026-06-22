@@ -1,0 +1,3 @@
+C:/Users/pkque/Desktop/Studia/praca inzynierska/AutoTune/build/CMakeFiles/AutoTuneEngineering.dir
+C:/Users/pkque/Desktop/Studia/praca inzynierska/AutoTune/build/CMakeFiles/ALL_BUILD.dir
+C:/Users/pkque/Desktop/Studia/praca inzynierska/AutoTune/build/CMakeFiles/ZERO_CHECK.dir
