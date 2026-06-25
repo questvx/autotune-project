@@ -8,4 +8,5 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_executable(
     AutoTuneEngineering
     src/main.cpp
+    src/WavReader/WavReader.cpp
 )

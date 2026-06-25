@@ -4,6 +4,9 @@
     <ClCompile Include="C:\Users\pkque\Desktop\Studia\praca inzynierska\AutoTune\src\main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="C:\Users\pkque\Desktop\Studia\praca inzynierska\AutoTune\src\wavReader\WavReader.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="C:\Users\pkque\Desktop\Studia\praca inzynierska\AutoTune\CMakeLists.txt" />

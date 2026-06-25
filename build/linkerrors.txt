@@ -1,0 +1,11 @@
+================================================================================
+Linker Errors
+Generated: 2026-06-25T22:17:23.189Z
+Total Errors: 2
+================================================================================
+
+[LNK2019] (MSVC)
+nierozpoznany symbol zewnętrzny "public: bool __cdecl WavReader::load(class std::filesystem::path const &)" (?load@WavReader@@QEAA_NAEBVpath@filesystem@std@@@Z) przywołany w funkcji main [C:\Users\pkque\Desktop\Studia\praca inzynierska\AutoTune\build\AutoTuneEngineering.vcxproj]
+
+[LNK1120] (MSVC)
+liczba nierozpoznanych elementów zewnętrznych: 1 [C:\Users\pkque\Desktop\Studia\praca inzynierska\AutoTune\build\AutoTuneEngineering.vcxproj]

@@ -302,6 +302,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="C:\Users\pkque\Desktop\Studia\praca inzynierska\AutoTune\src\main.cpp" />
+    <ClCompile Include="C:\Users\pkque\Desktop\Studia\praca inzynierska\AutoTune\src\wavReader\WavReader.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="C:\Users\pkque\Desktop\Studia\praca inzynierska\AutoTune\build\ZERO_CHECK.vcxproj">
