@@ -1,23 +1,66 @@
-//WavReader.cpp
+// WavReader.cpp
 #include "WavReader.h"
 #include <filesystem>
 #include <iostream>
 
+#define DR_WAV_IMPLEMENTATION
+#include "../../external/dr_wav.h"
+
 using namespace std;
 
-bool WavReader::load(const filesystem::path& path)
+bool WavReader::load(const filesystem::path &path)
 {
-   cout << "Current path(wav reader): "
-          << std::filesystem::current_path()
-          << "\n";
 
-    if(!filesystem::exists(path))
+    // Print the current working directory for debugging purposes
+    // cout << "Current path(wav reader): "
+    //      << filesystem::current_path()
+    //      << "\n";
+
+    // Check if the file exists
+    if (!filesystem::exists(path))
     {
-        cerr << "Error: File does not exist." << std::endl;
+        cerr << "Error: File does not exist." << endl;
         return false;
     }
 
-    cout << "File exists. Proceeding with loading..." << std::endl;
+    // Load the WAV file using dr_wav
+    drwav wav;
+    if (!drwav_init_file(&wav, path.string().c_str(), nullptr))
+    {
+        cerr << "Error: Failed to load WAV file." << endl;
+        return false;
+    }
+    
+    // Variables
+    const drwav_uint64 totalFrames = wav.totalPCMFrameCount;
+    sampleRate = wav.sampleRate;
+    channels = wav.channels;
+    
+    // Resize the samples vector to hold all the audio samples
+    samples.resize(totalFrames * wav.channels);
+    // Read the audio samples into the vector
+    drwav_uint64 framesRead = drwav_read_pcm_frames_f32(&wav, totalFrames, samples.data());
+
+    drwav_uninit(&wav);
+
+    // Check if all frames were read successfully
+    if (framesRead != totalFrames)
+    {
+        std::cerr << "Error: Failed to read all samples.\n";
+        return false;
+    }
+
+    // Print out some information about the WAV file for debugging purposes
+    double duration = static_cast<double>(totalFrames) / (wav.sampleRate);
+    cout << "Sample Rate (frames/second): " << wav.sampleRate << endl;
+    cout << "Channels: " << wav.channels << endl;
+    cout << "Total PCM Frame Count: " << totalFrames << endl;
+    cout << "Duration: " << duration << "s" << endl;
+    cout << "First 10 samples of the first channel: ";
+    for (int i = 0; i < 10; i++)
+    {
+        std::cout << i << ": " << samples[i] << "\n";
+    }
 
     return true;
 }

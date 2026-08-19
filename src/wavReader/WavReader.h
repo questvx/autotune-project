@@ -4,6 +4,16 @@
 
 class WavReader
 {
+    private:
+        std::vector<float> samples; // Vector to hold audio samples
+        unsigned int sampleRate = 0;
+        unsigned int channels = 0;
+
     public:
-        bool load(const std::filesystem::path& path);
+        bool load(const std::filesystem::path& path);    
+        bool read(const std::filesystem::path& path);
+
+        const std::vector<float>& getSamples() const;
+        unsigned int getSampleRate() const;
+        unsigned int getChannels() const;
 };
