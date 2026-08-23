@@ -8,6 +8,8 @@
 
 using namespace std;
 
+//------------ Load WAV file ------------
+
 bool WavReader::load(const filesystem::path &path)
 {
 
@@ -30,12 +32,12 @@ bool WavReader::load(const filesystem::path &path)
         cerr << "Error: Failed to load WAV file." << endl;
         return false;
     }
-    
+
     // Variables
     const drwav_uint64 totalFrames = wav.totalPCMFrameCount;
     sampleRate = wav.sampleRate;
     channels = wav.channels;
-    
+
     // Resize the samples vector to hold all the audio samples
     samples.resize(totalFrames * wav.channels);
     // Read the audio samples into the vector
@@ -51,9 +53,9 @@ bool WavReader::load(const filesystem::path &path)
     }
 
     // Print out some information about the WAV file for debugging purposes
-    double duration = static_cast<double>(totalFrames) / (wav.sampleRate);
-    cout << "Sample Rate (frames/second): " << wav.sampleRate << endl;
-    cout << "Channels: " << wav.channels << endl;
+    double duration = static_cast<double>(totalFrames) / (sampleRate); //--------------- delete later
+    cout << "Sample Rate (frames/second): " << sampleRate << endl;
+    cout << "Channels: " << channels << endl;
     cout << "Total PCM Frame Count: " << totalFrames << endl;
     cout << "Duration: " << duration << "s" << endl;
     cout << "First 10 samples of the first channel: ";
@@ -63,4 +65,20 @@ bool WavReader::load(const filesystem::path &path)
     }
 
     return true;
+}
+
+//------------ Getters ------------
+unsigned int WavReader::getSampleRate() const
+{
+    return sampleRate;
+}
+
+unsigned int WavReader::getChannels() const
+{
+    return channels;
+}
+
+const std::vector<float>& WavReader::getSamples() const
+{
+    return samples;
 }

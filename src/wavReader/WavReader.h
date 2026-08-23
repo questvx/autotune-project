@@ -1,6 +1,7 @@
 //WavReader.h
 #pragma once
 #include <filesystem>
+#include <vector>
 
 class WavReader
 {
@@ -11,9 +12,9 @@ class WavReader
 
     public:
         bool load(const std::filesystem::path& path);    
-        bool read(const std::filesystem::path& path);
+        // bool read(const std::filesystem::path& path);
 
         const std::vector<float>& getSamples() const;
         unsigned int getSampleRate() const;
         unsigned int getChannels() const;
-};
+}; 

@@ -38,5 +38,16 @@ int main(int argc, char **argv)
         return 1;
     }
 
+        
+
+    // Print out some information about the WAV file for debugging purposes
+    cout << "Sample Rate (frames/second): " << reader.getSampleRate() << endl;
+    cout << "Channels: " << reader.getChannels() << endl;
+    cout << "First 10 samples of the first channel: ";
+    for (int i = 0; i < 10; i++)
+    {
+        std::cout << i << ": " << reader.getSamples()[i] << "\n";
+    }
+
     return 0;
 }
