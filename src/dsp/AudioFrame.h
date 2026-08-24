@@ -4,6 +4,5 @@
 
 struct AudioFrame
 {
-    // private:
-    //     std::vector<float> samples; Vector to hold audio samples
+        std::vector<float> frameSamples; //Vector to hold audio samples
 };  

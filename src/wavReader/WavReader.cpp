@@ -1,6 +1,6 @@
 // WavReader.cpp
 #include "WavReader.h"
-#include <filesystem>
+// #include <filesystem>
 #include <iostream>
 
 #define DR_WAV_IMPLEMENTATION
@@ -38,10 +38,10 @@ bool WavReader::load(const filesystem::path &path)
     sampleRate = wav.sampleRate;
     channels = wav.channels;
 
-    // Resize the samples vector to hold all the audio samples
-    samples.resize(totalFrames * wav.channels);
+    // Resize the audioSamples vector to hold all the audio samples
+    audioSamples.resize(totalFrames * wav.channels);
     // Read the audio samples into the vector
-    drwav_uint64 framesRead = drwav_read_pcm_frames_f32(&wav, totalFrames, samples.data());
+    drwav_uint64 framesRead = drwav_read_pcm_frames_f32(&wav, totalFrames, audioSamples.data());
 
     drwav_uninit(&wav);
 
@@ -61,7 +61,7 @@ bool WavReader::load(const filesystem::path &path)
     cout << "First 10 samples of the first channel: ";
     for (int i = 0; i < 10; i++)
     {
-        std::cout << i << ": " << samples[i] << "\n";
+        std::cout << i << ": " << audioSamples[i] << "\n";
     }
 
     return true;
@@ -80,5 +80,5 @@ unsigned int WavReader::getChannels() const
 
 const std::vector<float>& WavReader::getSamples() const
 {
-    return samples;
+    return audioSamples;
 }

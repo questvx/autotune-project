@@ -6,7 +6,7 @@
 class WavReader
 {
     private:
-        std::vector<float> samples; // Vector to hold audio samples
+        std::vector<float> audioSamples; // Vector to hold audio samples
         unsigned int sampleRate = 0;
         unsigned int channels = 0;
 
