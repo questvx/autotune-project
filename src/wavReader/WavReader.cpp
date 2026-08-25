@@ -53,16 +53,16 @@ bool WavReader::load(const filesystem::path &path)
     }
 
     // Print out some information about the WAV file for debugging purposes
-    double duration = static_cast<double>(totalFrames) / (sampleRate); //--------------- delete later
-    cout << "Sample Rate (frames/second): " << sampleRate << endl;
-    cout << "Channels: " << channels << endl;
-    cout << "Total PCM Frame Count: " << totalFrames << endl;
-    cout << "Duration: " << duration << "s" << endl;
-    cout << "First 10 samples of the first channel: ";
-    for (int i = 0; i < 10; i++)
-    {
-        std::cout << i << ": " << audioSamples[i] << "\n";
-    }
+    // double duration = static_cast<double>(totalFrames) / (sampleRate); //--------------- delete later
+    // cout << "Sample Rate (frames/second): " << sampleRate << endl;
+    // cout << "Channels: " << channels << endl;
+    // cout << "Total PCM Frame Count: " << totalFrames << endl;
+    // cout << "Duration: " << duration << "s" << endl;
+    // cout << "First 10 samples of the first channel: ";
+    // for (int i = 0; i < 10; i++)
+    // {
+    //     std::cout << i << ": " << audioSamples[i] << "\n";
+    // }
 
     return true;
 }
