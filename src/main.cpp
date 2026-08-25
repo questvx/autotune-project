@@ -51,8 +51,7 @@ int main(int argc, char **argv)
     //     std::cout << i << ": " << reader.getSamples()[i] << "\n";
     // }
 
-    float detectedPitch = detector.detectPitch(generator.generateFrames(reader.getSamples(), 2048, 512)[0], reader.getSampleRate(), 50.0f, 2000.0f);
-    cout << "Detected pitch: " << detectedPitch << " Hz" << endl;
+    detector.detectPitch(generator.generateFrames(reader.getSamples(), 2048, 512)[0], reader.getSampleRate(), 80.0f, 1000.0f);
 
     return 0;
 }

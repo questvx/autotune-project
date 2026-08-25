@@ -5,5 +5,5 @@
 class PitchDetector
 {
 public:
-    float detectPitch(const AudioFrame &frame, float sampleRate, float minFreq, float maxFreq);
+    float detectPitch(const AudioFrame &frame, float sampleRate, float minFrequency, float maxFrequency);
 };
