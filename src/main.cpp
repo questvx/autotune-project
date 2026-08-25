@@ -2,7 +2,8 @@
 #include <iostream>
 #include <filesystem>
 #include "wavReader/WavReader.h"
-#include "dsp/FrameGenerator.h"
+#include "dsp/frameGenerator/FrameGenerator.h"
+#include "dsp/pitchDetector/PitchDetector.h"
 
 using namespace std;
 
@@ -27,12 +28,14 @@ int main(int argc, char **argv)
 {
     WavReader reader;
     FrameGenerator generator;
+    PitchDetector detector;
+
     filesystem::path exePath = getExecutablePath(argv[0]);
     filesystem::path assetPath = getAssetPath(exePath);
 
     cout << "Executable path: " << exePath << "\n";
     cout << "Asset path: " << assetPath << "\n";
-    cout << "=======Launching AutoTune=======" << endl;
+    cout << "\n=======Launching AutoTune=======" << endl;
 
     if (!reader.load(assetPath))
     {
@@ -40,15 +43,16 @@ int main(int argc, char **argv)
     }
 
     // Print out some information about the WAV file for debugging purposes
-    cout << "Sample Rate (frames/second): " << reader.getSampleRate() << endl;
-    cout << "Channels: " << reader.getChannels() << endl;
-    cout << "First 10 samples of the first channel: ";
-    for (int i = 0; i < 10; i++)
-    {
-        std::cout << i << ": " << reader.getSamples()[i] << "\n";
-    }
-    // number of samples, frame size, hop size
-    generator.generateFrames(reader.getSamples(), 2048, 512);
+    // cout << "Sample Rate (frames/second): " << reader.getSampleRate() << endl;
+    // cout << "Channels: " << reader.getChannels() << endl;
+    // cout << "First 10 samples of the first channel: ";
+    // for (int i = 0; i < 10; i++)
+    // {
+    //     std::cout << i << ": " << reader.getSamples()[i] << "\n";
+    // }
+
+    float detectedPitch = detector.detectPitch(generator.generateFrames(reader.getSamples(), 2048, 512)[0], reader.getSampleRate(), 50.0f, 2000.0f);
+    cout << "Detected pitch: " << detectedPitch << " Hz" << endl;
 
     return 0;
 }

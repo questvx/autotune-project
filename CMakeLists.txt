@@ -9,5 +9,6 @@ add_executable(
     AutoTuneEngineering
     src/main.cpp
     src/WavReader/WavReader.cpp
-    src/dsp/FrameGenerator.cpp
+    src/dsp/frameGenerator/FrameGenerator.cpp
+    src/dsp/pitchDetector/PitchDetector.cpp
 )

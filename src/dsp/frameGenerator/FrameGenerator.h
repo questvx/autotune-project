@@ -1,7 +1,7 @@
 // FrameGenerator.h
 #pragma once
 #include <vector>
-#include "AudioFrame.h"
+#include "../audioFrame/AudioFrame.h"
 
 class FrameGenerator
 {

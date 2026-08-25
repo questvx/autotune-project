@@ -32,6 +32,14 @@ bool WavReader::load(const filesystem::path &path)
         cerr << "Error: Failed to load WAV file." << endl;
         return false;
     }
+    // DELETE LATER ========================================
+    if (wav.channels != 1)
+    {
+        std::cout << "Error: Only mono WAV files are supported.\n";
+        drwav_uninit(&wav);
+        return false;
+    }
+    // =====================================================
 
     // Variables
     const drwav_uint64 totalFrames = wav.totalPCMFrameCount;
@@ -52,17 +60,15 @@ bool WavReader::load(const filesystem::path &path)
         return false;
     }
 
-    // Print out some information about the WAV file for debugging purposes
-    // double duration = static_cast<double>(totalFrames) / (sampleRate); //--------------- delete later
-    // cout << "Sample Rate (frames/second): " << sampleRate << endl;
-    // cout << "Channels: " << channels << endl;
-    // cout << "Total PCM Frame Count: " << totalFrames << endl;
-    // cout << "Duration: " << duration << "s" << endl;
-    // cout << "First 10 samples of the first channel: ";
-    // for (int i = 0; i < 10; i++)
-    // {
-    //     std::cout << i << ": " << audioSamples[i] << "\n";
-    // }
+    cout << "\n--- WavReader ---" << endl;
+    cout << "Sample Rate (frames/second): " << sampleRate << endl;
+    cout << "Channels: " << channels << endl;
+    cout << "First 10 samples of the first channel: ";
+    for (int i = 0; i < 10; i++)
+    {
+        std::cout << i << ": " << audioSamples[i] << "\n";
+    }
+
 
     return true;
 }
@@ -78,7 +84,7 @@ unsigned int WavReader::getChannels() const
     return channels;
 }
 
-const std::vector<float>& WavReader::getSamples() const
+const std::vector<float> &WavReader::getSamples() const
 {
     return audioSamples;
 }
