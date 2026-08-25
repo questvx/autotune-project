@@ -13,7 +13,7 @@ std::vector<AudioFrame> FrameGenerator::generateFrames(
     std::vector<AudioFrame> frames;
 
     size_t totalSamples = audioSamples.size();
-
+    
     size_t overlapSamples = frameSize - hopSize;
     float overlapPercent = (static_cast<float>(overlapSamples) / frameSize) * 100.0f;
 

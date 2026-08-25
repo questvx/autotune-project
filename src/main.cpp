@@ -47,7 +47,7 @@ int main(int argc, char **argv)
     {
         std::cout << i << ": " << reader.getSamples()[i] << "\n";
     }
-    // number of samples, frame size, hop size, overlap
+    // number of samples, frame size, hop size
     generator.generateFrames(reader.getSamples(), 2048, 512);
 
     return 0;
