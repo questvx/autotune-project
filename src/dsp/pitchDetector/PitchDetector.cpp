@@ -43,7 +43,7 @@ float PitchDetector::detectPitch(const AudioFrame &frame, float sampleRate, floa
 
         if (energy1 > 0.0f && energy2 > 0.0f)
         {
-            normalizedCorrelation = correlation / (sqrt(energy1) * sqrt(energy2));
+            normalizedCorrelation = correlation / (sqrt(energy1 * energy2));
         }
         else
         {
@@ -63,11 +63,6 @@ float PitchDetector::detectPitch(const AudioFrame &frame, float sampleRate, floa
         correlationResult.begin(),
         maxIt);
 
-    if (maxCorrelation < threshold)
-    {
-        std::cout << "CORRELATION BELOW THRESHOLD: " << maxCorrelation << "Hz" << std::endl;
-        return 0.0f;
-    }
 
     float bestLag = static_cast<float>(minLag + maxIndex);
 
@@ -85,6 +80,12 @@ float PitchDetector::detectPitch(const AudioFrame &frame, float sampleRate, floa
             float delta = 0.5f * (y0 - y2) / denominator;
             bestLag += delta;
         }
+    }
+
+    if (maxCorrelation < threshold)
+    {
+        std::cout << "CORRELATION BELOW THRESHOLD: " << maxCorrelation << std::endl;
+        return 0.0f;
     }
 
     float detectedPitch = sampleRate / bestLag;
