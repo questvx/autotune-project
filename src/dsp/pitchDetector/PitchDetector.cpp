@@ -19,14 +19,36 @@ float PitchDetector::detectPitch(const AudioFrame &frame, float sampleRate, floa
     // Correlation
     std::vector<float> correlationResult(maxLag - minLag + 1, 0.0f);
 
+    float correlation = 0.0f;
+    float energy1 = 0.0f;
+    float energy2 = 0.0f;
+
+    float normalizedCorrelation = 0.0f;
+
     for (size_t lag = minLag; lag <= maxLag; ++lag)
     {
-        float correlation = 0.0f;
+        correlation = 0.0f;
+        energy1 = 0.0f;
+        energy2 = 0.0f;
+
         for (size_t i = 0; i < frame.frameSamples.size() - lag; ++i)
         {
-            correlation += frame.frameSamples[i] * frame.frameSamples[i + lag];
+            float sample1 = frame.frameSamples[i];
+            float sample2 = frame.frameSamples[i + lag];
+
+            correlation += sample1 * sample2;
+            energy1 += sample1 * sample1;
+            energy2 += sample2 * sample2;
         }
-        correlationResult[lag - minLag] = correlation;
+        if(energy1 > 0.0f && energy2 > 0.0f)
+        {
+            normalizedCorrelation = correlation / (sqrt(energy1) * sqrt(energy2));
+        }
+        else
+        {
+            normalizedCorrelation = 0.0f;
+        }
+        correlationResult[lag - minLag] = normalizedCorrelation;
     }
 
     // Find the lag with the maximum correlation
@@ -62,6 +84,7 @@ float PitchDetector::detectPitch(const AudioFrame &frame, float sampleRate, floa
 
     std::cout << "Best lag: " << bestLag << "\n";
     std::cout << "Detected pitch: " << detectedPitch << " Hz\n";
+    std::cout << "Correlation: " << maxCorrelation << "\n";
 
     return detectedPitch;
 }

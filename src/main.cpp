@@ -20,7 +20,7 @@ static filesystem::path getExecutablePath(const char *argv0)
 
 static filesystem::path getAssetPath(const filesystem::path &exePath)
 {
-    return exePath.parent_path() / ".." / ".." / "assets" / "sine_440.wav";
+    return exePath.parent_path() / ".." / ".." / "assets" / "vocal_2.wav";
 }
 
 // ----- Main function -----
@@ -42,16 +42,29 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    // Print out some information about the WAV file for debugging purposes
-    // cout << "Sample Rate (frames/second): " << reader.getSampleRate() << endl;
-    // cout << "Channels: " << reader.getChannels() << endl;
-    // cout << "First 10 samples of the first channel: ";
-    // for (int i = 0; i < 10; i++)
-    // {
-    //     std::cout << i << ": " << reader.getSamples()[i] << "\n";
-    // }
+    auto frames = generator.generateFrames(
+        reader.getSamples(),
+        2048,
+        512);
 
-    detector.detectPitch(generator.generateFrames(reader.getSamples(), 2048, 512)[0], reader.getSampleRate(), 80.0f, 1000.0f);
+    for (size_t i = 0; i < frames.size(); ++i)
+    {
+        float pitch = detector.detectPitch(
+            frames[i],
+            static_cast<float>(reader.getSampleRate()),
+            50.0f,
+            1000.0f);
+
+        cout << "Frame " << i << ": Detected pitch: " << pitch << " Hz\n";
+        float time = static_cast<float>(i * 512) / reader.getSampleRate();
+
+        std::cout << "Time: "
+                  << std::fixed << std::setprecision(3)
+                  << time
+                  << " s | Pitch: "
+                  << pitch
+                  << " Hz\n";
+    }
 
     return 0;
 }
