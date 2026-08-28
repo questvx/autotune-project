@@ -20,7 +20,7 @@ static filesystem::path getExecutablePath(const char *argv0)
 
 static filesystem::path getAssetPath(const filesystem::path &exePath)
 {
-    return exePath.parent_path() / ".." / ".." / "assets" / "vocal_2.wav";
+    return exePath.parent_path() / ".." / ".." / "assets" / "sine_220.wav";
 }
 
 // ----- Main function -----
@@ -49,21 +49,23 @@ int main(int argc, char **argv)
 
     for (size_t i = 0; i < frames.size(); ++i)
     {
-        float pitch = detector.detectPitch(
+        PitchResult pitchResult = detector.detectPitch(
             frames[i],
             static_cast<float>(reader.getSampleRate()),
             50.0f,
             1000.0f);
 
-        cout << "Frame " << i << ": Detected pitch: " << pitch << " Hz\n";
+        cout << "Frame " << i << ": Detected pitch: " << pitchResult.frequency << " Hz\n";
         float time = static_cast<float>(i * 512) / reader.getSampleRate();
 
         std::cout << "Time: "
                   << std::fixed << std::setprecision(3)
                   << time
                   << " s | Pitch: "
-                  << pitch
-                  << " Hz\n";
+                  << pitchResult.frequency
+                  << " Hz | Correlation: "
+                  << pitchResult.correlation
+                  << "\n";
     }
 
     return 0;

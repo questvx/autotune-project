@@ -1,11 +1,11 @@
 #include "PitchDetector.h"
 #include <iostream>
 
-float PitchDetector::detectPitch(const AudioFrame &frame, float sampleRate, float minFrequency, float maxFrequency)
+PitchResult PitchDetector::detectPitch(const AudioFrame &frame, float sampleRate, float minFrequency, float maxFrequency)
 {
     std::cout << "\n--- Pitch Detector ---" << std::endl;
-    std::cout << " Frame size: " << frame.frameSamples.size() << std::endl;
-    std::cout << "Frequency range: " << minFrequency << " -" << maxFrequency << " Hz" << std::endl;
+    // std::cout << " Frame size: " << frame.frameSamples.size() << std::endl;
+    // std::cout << "Frequency range: " << minFrequency << " -" << maxFrequency << " Hz" << std::endl;
 
     size_t minLag = static_cast<size_t>(sampleRate / maxFrequency);
     size_t maxLag = static_cast<size_t>(sampleRate / minFrequency);
@@ -18,7 +18,7 @@ float PitchDetector::detectPitch(const AudioFrame &frame, float sampleRate, floa
 
     // Correlation
     std::vector<float> correlationResult(maxLag - minLag + 1, 0.0f);
-    float threshold = 0.75f; // Threshold for correlation
+    const float threshold = 0.75f; // Threshold for correlation
     float correlation = 0.0f;
     float energy1 = 0.0f;
     float energy2 = 0.0f;
@@ -63,7 +63,6 @@ float PitchDetector::detectPitch(const AudioFrame &frame, float sampleRate, floa
         correlationResult.begin(),
         maxIt);
 
-
     float bestLag = static_cast<float>(minLag + maxIndex);
 
     // Interpolation
@@ -84,15 +83,19 @@ float PitchDetector::detectPitch(const AudioFrame &frame, float sampleRate, floa
 
     if (maxCorrelation < threshold)
     {
-        std::cout << "CORRELATION BELOW THRESHOLD: " << maxCorrelation << std::endl;
-        return 0.0f;
+        std::cout << "==============CORRELATION BELOW THRESHOLD: " << maxCorrelation << std::endl;
+        return PitchResult{0.0f, maxCorrelation};
     }
 
     float detectedPitch = sampleRate / bestLag;
 
-    std::cout << "Best lag: " << bestLag << "\n";
+    // std::cout << "Best lag: " << bestLag << "\n";
     std::cout << "Detected pitch: " << detectedPitch << " Hz\n";
     std::cout << "Correlation: " << maxCorrelation << "\n";
 
-    return detectedPitch;
+    PitchResult result;
+    result.frequency = detectedPitch;
+    result.correlation = maxCorrelation;
+
+    return result;
 }
