@@ -3,7 +3,7 @@
 
 PitchResult PitchDetector::detectPitch(const AudioFrame &frame, float sampleRate, float minFrequency, float maxFrequency)
 {
-    std::cout << "\n--- Pitch Detector ---" << std::endl;
+    // std::cout << "\n--- Pitch Detector ---" << std::endl;
     // std::cout << " Frame size: " << frame.frameSamples.size() << std::endl;
     // std::cout << "Frequency range: " << minFrequency << " -" << maxFrequency << " Hz" << std::endl;
 
@@ -83,15 +83,15 @@ PitchResult PitchDetector::detectPitch(const AudioFrame &frame, float sampleRate
 
     if (maxCorrelation < threshold)
     {
-        std::cout << "==============CORRELATION BELOW THRESHOLD: " << maxCorrelation << std::endl;
+        std::cout << " BELOW THRESHOLD " << maxCorrelation << std::endl;
         return PitchResult{0.0f, maxCorrelation};
     }
 
     float detectedPitch = sampleRate / bestLag;
 
     // std::cout << "Best lag: " << bestLag << "\n";
-    std::cout << "Detected pitch: " << detectedPitch << " Hz\n";
-    std::cout << "Correlation: " << maxCorrelation << "\n";
+    // std::cout << "Detected pitch: " << detectedPitch << " Hz\n";
+    // std::cout << "Correlation: " << maxCorrelation << "\n";
 
     PitchResult result;
     result.frequency = detectedPitch;

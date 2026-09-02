@@ -1,7 +1,7 @@
 // PitchDetector.h
 #pragma once
 #include "../audioFrame/AudioFrame.h"
-#include "../pitchResult/PitchResult.h"
+#include "PitchResult.h"
 
 class PitchDetector
 {
