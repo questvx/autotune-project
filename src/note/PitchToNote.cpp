@@ -8,7 +8,7 @@ const char *noteNames[] =
         "C", "C#", "D", "D#", "E", "F",
         "F#", "G", "G#", "A", "A#", "B"};
 
-Note PitchToNote::frequencyToMidiNote(float frequency)
+Note PitchToNote::frequencyToNote(float frequency)
 {
     if (frequency <= 0.0f)
         return {-1, "Invalid", 0.0f};

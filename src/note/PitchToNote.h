@@ -7,6 +7,6 @@
 class PitchToNote
 {
 public:
-    static Note frequencyToMidiNote(float frequency);
+    static Note frequencyToNote(float frequency);
     static float midiNoteToFrequency(int midiNote);
 };

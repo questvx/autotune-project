@@ -11,4 +11,5 @@ add_executable(
     src/WavReader/WavReader.cpp
     src/dsp/frameGenerator/FrameGenerator.cpp
     src/dsp/pitchDetector/PitchDetector.cpp
+    src/note/PitchToNote.cpp
 )
