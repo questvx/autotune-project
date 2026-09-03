@@ -12,7 +12,7 @@ using namespace std;
 // Function to get the absolute path of the executable
 static filesystem::path getExecutablePath(const char *argv0)
 {
-    filesystem::path exePath(argv0);
+    filesystem::path exePath(argv0); 
     if (exePath.is_relative())
     {
         exePath = filesystem::current_path() / exePath;
