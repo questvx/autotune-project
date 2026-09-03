@@ -4,7 +4,8 @@
 #include "wavReader/WavReader.h"
 #include "dsp/frameGenerator/FrameGenerator.h"
 #include "dsp/pitchDetector/PitchDetector.h"
-#include "note/PitchToNote.h"
+#include "dsp/note/PitchToNote.h"
+#include "dsp/cents/Cents.h"
 
 using namespace std;
 
@@ -21,7 +22,7 @@ static filesystem::path getExecutablePath(const char *argv0)
 
 static filesystem::path getAssetPath(const filesystem::path &exePath)
 {
-    return exePath.parent_path() / ".." / ".." / "assets" / "guitar_1.wav";
+    return exePath.parent_path() / ".." / ".." / "assets" / "guitar_h.wav";
 }
 
 // ----- Main function -----
@@ -59,21 +60,23 @@ int main(int argc, char **argv)
         float time = static_cast<float>(i * 512) / reader.getSampleRate();
 
         Note note = PitchToNote::frequencyToNote(pitchResult.frequency);
-
+        float cents = Cents::calculate(pitchResult.frequency, note.frequency);
         std::cout << "\nTime: "
                   << std::fixed << std::setprecision(3)
                   << time
-                  << " s | Pitch: "
+                  << " s      Pitch: "
                   << pitchResult.frequency
+                  << " | Frequency: "
+                  << note.frequency
                   << " Hz | Correlation: "
                   << pitchResult.correlation
-                  << " | Note: "
+                  << "      Note: "
                   << note.name
                   << " | MIDI: "
                   << note.midi
-                  << " | Frequency: "
-                  << note.frequency
-                  << " Hz";
+                  << "| Cents: "
+                  << cents
+                  << " ct";
     }
 
     return 0;
