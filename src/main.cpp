@@ -3,9 +3,9 @@
 #include <filesystem>
 #include "wavReader/WavReader.h"
 #include "dsp/frameGenerator/FrameGenerator.h"
-#include "dsp/pitchDetector/PitchDetector.h"
-#include "dsp/note/PitchToNote.h"
-#include "dsp/cents/Cents.h"
+#include "dsp/pitchAnalysis/pitchDetector/PitchDetector.h"
+#include "dsp/pitchAnalysis/pitchToNote/PitchToNote.h"
+#include "dsp/pitchAnalysis/cents/Cents.h"
 
 using namespace std;
 

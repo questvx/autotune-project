@@ -10,7 +10,7 @@ add_executable(
     src/main.cpp
     src/WavReader/WavReader.cpp
     src/dsp/frameGenerator/FrameGenerator.cpp
-    src/dsp/pitchDetector/PitchDetector.cpp
-    src/dsp/note/PitchToNote.cpp
-    src/dsp/cents/Cents.cpp
+    src/dsp/pitchAnalysis/pitchDetector/PitchDetector.cpp
+    src/dsp/pitchAnalysis/pitchToNote/PitchToNote.cpp
+    src/dsp/pitchAnalysis/cents/Cents.cpp
 )

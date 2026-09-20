@@ -2,8 +2,8 @@
 
 #pragma once
 
-#include "../pitchDetector/PitchResult.h"
-#include "../note/Note.h"
+#include "pitchDetector/PitchResult.h"
+#include "pitchToNote/Note.h"
 
 struct PitchAnalysis
 {
