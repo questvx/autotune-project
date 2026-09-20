@@ -3,9 +3,7 @@
 #include <filesystem>
 #include "wavReader/WavReader.h"
 #include "dsp/frameGenerator/FrameGenerator.h"
-#include "dsp/pitchAnalysis/pitchDetector/PitchDetector.h"
-#include "dsp/pitchAnalysis/pitchToNote/PitchToNote.h"
-#include "dsp/pitchAnalysis/cents/Cents.h"
+#include "dsp/pitchAnalysis/pitchAnalyzer/PitchAnalyzer.h"
 
 using namespace std;
 
@@ -30,7 +28,7 @@ int main(int argc, char **argv)
 {
     WavReader reader;
     FrameGenerator generator;
-    PitchDetector detector;
+    PitchAnalyzer analyzer;
 
     filesystem::path exePath = getExecutablePath(argv[0]);
     filesystem::path assetPath = getAssetPath(exePath);
@@ -51,7 +49,7 @@ int main(int argc, char **argv)
 
     for (size_t i = 0; i < frames.size(); ++i)
     {
-        PitchResult pitchResult = detector.detectPitch(
+        PitchAnalysisResult analysis = analyzer.analyze(
             frames[i],
             static_cast<float>(reader.getSampleRate()),
             50.0f,
@@ -59,23 +57,21 @@ int main(int argc, char **argv)
 
         float time = static_cast<float>(i * 512) / reader.getSampleRate();
 
-        Note note = PitchToNote::frequencyToNote(pitchResult.frequency);
-        float cents = Cents::calculate(pitchResult.frequency, note.frequency);
         std::cout << "\nTime: "
                   << std::fixed << std::setprecision(3)
                   << time
                   << " s      Pitch: "
-                  << pitchResult.frequency
+                  << analysis.pitchResult.frequency
                   << " | Frequency: "
-                  << note.frequency
+                  << analysis.targetFrequency
                   << " Hz | Correlation: "
-                  << pitchResult.correlation
+                  << analysis.pitchResult.correlation
                   << "      Note: "
-                  << note.name
+                  << analysis.note.name
                   << " | MIDI: "
-                  << note.midi
+                  << analysis.note.midi
                   << "| Cents: "
-                  << cents
+                  << analysis.cents
                   << " ct";
     }
 

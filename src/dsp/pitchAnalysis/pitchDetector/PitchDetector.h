@@ -1,6 +1,6 @@
 // PitchDetector.h
 #pragma once
-#include "../../audioFrame/AudioFrame.h"
+#include "../../frameGenerator/AudioFrame.h"
 #include "PitchResult.h"
 
 class PitchDetector

@@ -1,11 +1,11 @@
-//PitchAnalysis.h
+//PitchAnalysisResult.h
 
 #pragma once
 
 #include "pitchDetector/PitchResult.h"
 #include "pitchToNote/Note.h"
 
-struct PitchAnalysis
+struct PitchAnalysisResult
 {
     PitchResult pitchResult;
     Note note;
