@@ -1,19 +1,36 @@
-#pragma once
+#include "Scale.h"
 
-enum class ScaleType
+Scale::Scale(int rootNote, ScaleType type)
+    : rootNote(rootNote), type(type)
 {
-    Major,
-    Minor
-};
+}
 
-class Scale
+bool Scale::isNoteAllowed(int midiNote) const
 {
-public:
-    Scale(int rootNote, ScaleType type);
+    int noteClass = midiNote % 12;
+    int relativeNote = (noteClass - rootNote + 12) % 12;
 
-    bool isNoteAllowed(int midiNote) const;
+    if (type == ScaleType::Major)
+    {
+        return relativeNote == 0 ||
+               relativeNote == 2 ||
+               relativeNote == 4 ||
+               relativeNote == 5 ||
+               relativeNote == 7 ||
+               relativeNote == 9 ||
+               relativeNote == 11;
+    }
 
-private:
-    int rootNote;
-    ScaleType type;
-};
+    if (type == ScaleType::Minor)
+    {
+        return relativeNote == 0 ||
+               relativeNote == 2 ||
+               relativeNote == 3 ||
+               relativeNote == 5 ||
+               relativeNote == 7 ||
+               relativeNote == 8 ||
+               relativeNote == 10;
+    }
+
+    return false;
+}
