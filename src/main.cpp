@@ -1,9 +1,11 @@
 // main.cpp
 #include <iostream>
+#include <iomanip>
 #include <filesystem>
 #include "wavReader/WavReader.h"
 #include "dsp/frameGenerator/FrameGenerator.h"
 #include "dsp/pitchAnalysis/pitchAnalyzer/PitchAnalyzer.h"
+#include "scale/Scale.h"
 
 using namespace std;
 
@@ -20,7 +22,7 @@ static filesystem::path getExecutablePath(const char *argv0)
 
 static filesystem::path getAssetPath(const filesystem::path &exePath)
 {
-    return exePath.parent_path() / ".." / ".." / "assets" / "guitar_h.wav";
+    return exePath.parent_path() / ".." / ".." / "assets" / "sine_880.wav";
 }
 
 // ----- Main function -----
@@ -29,6 +31,7 @@ int main(int argc, char **argv)
     WavReader reader;
     FrameGenerator generator;
     PitchAnalyzer analyzer;
+    Scale scale(0, ScaleType::Major);
 
     filesystem::path exePath = getExecutablePath(argv[0]);
     filesystem::path assetPath = getAssetPath(exePath);
@@ -53,9 +56,13 @@ int main(int argc, char **argv)
             frames[i],
             static_cast<float>(reader.getSampleRate()),
             50.0f,
-            1000.0f);
+            1000.0f,
+            scale);
 
         float time = static_cast<float>(i * 512) / reader.getSampleRate();
+
+        const char* noteName = analysis.note.name ? analysis.note.name : "Invalid";
+        const char* targetNoteName = analysis.targetNote.name ? analysis.targetNote.name : "Invalid";
 
         std::cout << "\nTime: "
                   << std::fixed << std::setprecision(3)
@@ -67,12 +74,15 @@ int main(int argc, char **argv)
                   << " Hz | Correlation: "
                   << analysis.pitchResult.correlation
                   << "      Note: "
-                  << analysis.note.name
+                  << noteName
                   << " | MIDI: "
                   << analysis.note.midi
                   << "| Cents: "
                   << analysis.cents
-                  << " ct";
+                  << " ct | Target Note: "
+                  << targetNoteName
+                  << " | MIDI: "
+                  << analysis.targetNote.midi;
     }
 
     return 0;

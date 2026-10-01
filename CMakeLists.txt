@@ -13,5 +13,7 @@ add_executable(
     src/dsp/pitchAnalysis/pitchAnalyzer/PitchAnalyzer.cpp
     src/dsp/pitchAnalysis/pitchDetector/PitchDetector.cpp
     src/dsp/pitchAnalysis/pitchToNote/PitchToNote.cpp
+    src/dsp/pitchAnalysis/pitchToNote/TargetNote.cpp
     src/dsp/pitchAnalysis/cents/Cents.cpp
+    src/scale/Scale.cpp
 )
