@@ -22,7 +22,7 @@ static filesystem::path getExecutablePath(const char *argv0)
 
 static filesystem::path getAssetPath(const filesystem::path &exePath)
 {
-    return exePath.parent_path() / ".." / ".." / "assets" / "vocal_3.wav";
+    return exePath.parent_path() / ".." / ".." / "assets" / "sine_880.wav";
 }
 
 // ----- Main function -----
@@ -31,7 +31,7 @@ int main(int argc, char **argv)
     WavReader reader;
     FrameGenerator generator;
     PitchAnalyzer analyzer;
-    Scale scale(0, ScaleType::Major);
+    Scale scale(60, ScaleType::Major);
 
     filesystem::path exePath = getExecutablePath(argv[0]);
     filesystem::path assetPath = getAssetPath(exePath);

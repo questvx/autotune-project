@@ -2,10 +2,10 @@
 
 #include <vector>
 
-class PitchMarkDetector
+class PitchMarks
 {
 public:
-    std::vector<int> detect(
+    static std::vector<int> detect(
         const std::vector<float>& samples,
         float frequency,
         float sampleRate
