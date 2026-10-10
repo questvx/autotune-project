@@ -1,5 +1,6 @@
 #include "PitchMarks.h"
 #include <cmath>
+#include <algorithm>
 
 std::vector<int> PitchMarks::detect(
     const std::vector<float>& samples,
@@ -15,17 +16,41 @@ std::vector<int> PitchMarks::detect(
         return marks;
     }
 
-    // Estimated period of the signal in samples
     float period = sampleRate / frequency;
 
-    // Start at the beginning of the frame
     float currentPosition = 0.0f;
+
+    // How far from the predicted position we search
+    int searchRadius = static_cast<int>(period * 0.1f);
 
     while (currentPosition < samples.size())
     {
-        marks.push_back(
-            static_cast<int>(std::round(currentPosition))
-        );
+        int predictedPosition =
+            static_cast<int>(std::round(currentPosition));
+
+        int searchStart =
+            std::max(0, predictedPosition - searchRadius);
+
+        int searchEnd =
+            std::min(
+                static_cast<int>(samples.size()) - 1,
+                predictedPosition + searchRadius
+            );
+
+        int bestPosition = predictedPosition;
+        float bestValue = samples[predictedPosition];
+
+        // Search for the strongest positive peak
+        for (int i = searchStart; i <= searchEnd; ++i)
+        {
+            if (samples[i] > bestValue)
+            {
+                bestValue = samples[i];
+                bestPosition = i;
+            }
+        }
+
+        marks.push_back(bestPosition);
 
         currentPosition += period;
     }

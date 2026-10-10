@@ -6,6 +6,7 @@
 #include "dsp/frameGenerator/FrameGenerator.h"
 #include "dsp/pitchAnalysis/pitchAnalyzer/PitchAnalyzer.h"
 #include "scale/Scale.h"
+#include "dsp/pitchShifter/PitchMarks.h"
 
 using namespace std;
 
@@ -22,7 +23,7 @@ static filesystem::path getExecutablePath(const char *argv0)
 
 static filesystem::path getAssetPath(const filesystem::path &exePath)
 {
-    return exePath.parent_path() / ".." / ".." / "assets" / "sine_880.wav";
+    return exePath.parent_path() / ".." / ".." / "assets" / "sine_440.wav";
 }
 
 // ----- Main function -----
@@ -50,6 +51,18 @@ int main(int argc, char **argv)
         2048,
         512);
 
+    // Temporary --------------
+    auto marks = PitchMarks::detect(
+        reader.getSamples(),
+        440.0f,
+        44100.0f);
+
+    for (int mark : marks)
+    {
+        std::cout << mark << '\n';
+    }
+    //------------------------
+
     for (size_t i = 0; i < frames.size(); ++i)
     {
         PitchAnalysisResult analysis = analyzer.analyze(
@@ -61,8 +74,8 @@ int main(int argc, char **argv)
 
         float time = static_cast<float>(i * 512) / reader.getSampleRate();
 
-        const char* noteName = analysis.note.name ? analysis.note.name : "Invalid";
-        const char* targetNoteName = analysis.targetNote.name ? analysis.targetNote.name : "Invalid";
+        const char *noteName = analysis.note.name ? analysis.note.name : "Invalid";
+        const char *targetNoteName = analysis.targetNote.name ? analysis.targetNote.name : "Invalid";
 
         std::cout << "\nTime: "
                   << std::fixed << std::setprecision(3)
