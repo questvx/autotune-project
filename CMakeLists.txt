@@ -17,4 +17,5 @@ add_executable(
     src/dsp/pitchAnalysis/cents/Cents.cpp
     src/scale/Scale.cpp
     src/dsp/pitchShifter/PitchMarks.cpp
+    src/dsp/pitchShifter/PSOLAGrain.cpp
 )
