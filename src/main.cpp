@@ -6,7 +6,11 @@
 #include "dsp/frameGenerator/FrameGenerator.h"
 #include "dsp/pitchAnalysis/pitchAnalyzer/PitchAnalyzer.h"
 #include "scale/Scale.h"
-#include "dsp/pitchShifter/PitchMarks.h"
+// temporary
+#include "dsp/PitchShifter/PitchMarks.h"
+#include "dsp/PitchShifter/PSOLAProcessor.h"
+#include <cmath>
+#include "../external/dr_wav.h"
 
 using namespace std;
 
@@ -23,7 +27,7 @@ static filesystem::path getExecutablePath(const char *argv0)
 
 static filesystem::path getAssetPath(const filesystem::path &exePath)
 {
-    return exePath.parent_path() / ".." / ".." / "assets" / "sine_440.wav";
+    return exePath.parent_path() / ".." / ".." / "assets" / "szklanki.wav";
 }
 
 // ----- Main function -----
@@ -52,15 +56,62 @@ int main(int argc, char **argv)
         512);
 
     // Temporary --------------
-    auto marks = PitchMarks::detect(
+    float testFrequency = 110.626f;
+    float targetFrequency = 130.16f;
+
+    float pitchRatio = targetFrequency / testFrequency;
+
+    float period = 44100.0f / testFrequency;
+
+    auto pitchMarks = PitchMarks::detect(
         reader.getSamples(),
-        440.0f,
+        testFrequency,
         44100.0f);
 
-    for (int mark : marks)
+    auto output = PSOLAProcessor::process(
+        reader.getSamples(),
+        pitchMarks,
+        pitchRatio,
+        static_cast<int>(std::round(period)));
+
+    std::cout << "Pitch marks: "
+              << pitchMarks.size() << '\n';
+
+    std::cout << "Pitch ratio: "
+              << pitchRatio << '\n';
+
+    std::cout << "Output samples: "
+              << output.size() << '\n';
+
+    drwav_data_format format{};
+    format.container = drwav_container_riff;
+    format.format = DR_WAVE_FORMAT_IEEE_FLOAT;
+    format.channels = 1;
+    format.sampleRate = 44100;
+    format.bitsPerSample = 32;
+
+    drwav wav{};
+    bool saved = drwav_init_file_write_sequential_pcm_frames(
+        &wav,
+        "output.wav",
+        &format,
+        static_cast<drwav_uint64>(output.size()),
+        nullptr) != 0;
+
+    if (saved)
     {
-        std::cout << mark << '\n';
+        const drwav_uint64 framesWritten = drwav_write_pcm_frames(
+            &wav,
+            static_cast<drwav_uint64>(output.size()),
+            output.data());
+        const drwav_result uninitResult = drwav_uninit(&wav);
+        saved = framesWritten == output.size() && uninitResult == DRWAV_SUCCESS;
     }
+
+    if (saved)
+        std::cout << "Output saved to output.wav\n";
+    else
+        std::cout << "Failed to save output.wav\n";
     //------------------------
 
     for (size_t i = 0; i < frames.size(); ++i)

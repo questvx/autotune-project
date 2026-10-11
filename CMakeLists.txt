@@ -18,4 +18,5 @@ add_executable(
     src/scale/Scale.cpp
     src/dsp/pitchShifter/PitchMarks.cpp
     src/dsp/pitchShifter/PSOLAGrain.cpp
+    src/dsp/pitchShifter/PSOLAProcessor.cpp
 )
