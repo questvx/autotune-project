@@ -64,7 +64,7 @@ external/dr_wav.h                  Bundled WAV library
 
 ## Limitations and next steps
 
-- The application currently reads mono audio and uses the hard-coded file `assets/guitar_h.wav`.
+- The application currently reads mono audio and uses the hard-coded files from `assets` folder.
 - Analysis settings, scale, and test pitch-shifting values are configured in the source code.
 - PSOLA is experimental and is not yet integrated with the automatically analyzed notes.
 - There is no graphical interface, real-time audio processing, or automated test suite yet.
