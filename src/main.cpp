@@ -27,7 +27,7 @@ static filesystem::path getExecutablePath(const char *argv0)
 
 static filesystem::path getAssetPath(const filesystem::path &exePath)
 {
-    return exePath.parent_path() / ".." / ".." / "assets" / "szklanki.wav";
+    return exePath.parent_path() / ".." / ".." / "assets" / "guitar_h.wav";
 }
 
 // ----- Main function -----
@@ -55,11 +55,12 @@ int main(int argc, char **argv)
         2048,
         512);
 
-    // Temporary --------------
-    float testFrequency = 110.626f;
-    float targetFrequency = 130.16f;
+    // Temporary --------------------------------------------------------
+    float testFrequency = 261.813f;
+    float targetFrequency = 280.16f;
 
     float pitchRatio = targetFrequency / testFrequency;
+    // float pitchRatio = 1.0f;
 
     float period = 44100.0f / testFrequency;
 
@@ -92,11 +93,11 @@ int main(int argc, char **argv)
 
     drwav wav{};
     bool saved = drwav_init_file_write_sequential_pcm_frames(
-        &wav,
-        "output.wav",
-        &format,
-        static_cast<drwav_uint64>(output.size()),
-        nullptr) != 0;
+                     &wav,
+                     "output.wav",
+                     &format,
+                     static_cast<drwav_uint64>(output.size()),
+                     nullptr) != 0;
 
     if (saved)
     {
@@ -112,7 +113,7 @@ int main(int argc, char **argv)
         std::cout << "Output saved to output.wav\n";
     else
         std::cout << "Failed to save output.wav\n";
-    //------------------------
+    //------------------------------------------------------------------------
 
     for (size_t i = 0; i < frames.size(); ++i)
     {
