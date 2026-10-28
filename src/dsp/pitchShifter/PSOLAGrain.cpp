@@ -1,6 +1,5 @@
 
 #include "PSOLAGrain.h"
-#include <algorithm>
 #include <cmath>
 
 std::vector<float> PSOLAGrain::extract(
@@ -10,34 +9,35 @@ std::vector<float> PSOLAGrain::extract(
 {
     std::vector<float> grain;
 
-    if (samples.empty() || period <= 0)
-        return grain;
-
-    int start = pitchMark - period;
-    int end = pitchMark + period;
-
-    start = std::max(0, start);
-    end = std::min(
-        static_cast<int>(samples.size()),
-        end
-    );
-
-    if (start >= end)
-        return grain;
-
-    grain.reserve(end - start);
-
-    const int grainSize = end - start;
-
-    for (int i = start; i < end; ++i)
+    if (samples.empty() ||
+        pitchMark < 0 ||
+        static_cast<size_t>(pitchMark) >= samples.size() ||
+        period <= 0)
     {
-        float sample = samples[i];
+        return grain;
+    }
 
-        // Sample position in the grain (0.0 to 1.0)
-        float position = static_cast<float>(i - start)
+    const size_t grainSize = static_cast<size_t>(period) * 2;
+    if (grainSize > grain.max_size())
+        return grain;
+
+    grain.reserve(grainSize);
+    const long long start =
+        static_cast<long long>(pitchMark) - period;
+
+    for (size_t i = 0; i < grainSize; ++i)
+    {
+        const long long sourceIndex = start + static_cast<long long>(i);
+        float sample = 0.0f;
+        if (sourceIndex >= 0 &&
+            static_cast<size_t>(sourceIndex) < samples.size())
+        {
+            sample = samples[static_cast<size_t>(sourceIndex)];
+        }
+
+        float position = static_cast<float>(i)
             / static_cast<float>(grainSize - 1);
 
-        //Hann Window
         float window = 0.5f * (
             1.0f - std::cos(
                 2.0f * 3.14159265358979323846f * position

@@ -3,6 +3,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <limits>
 
 std::vector<float> PSOLAProcessor::process(
     const std::vector<float>& samples,
@@ -12,72 +14,103 @@ std::vector<float> PSOLAProcessor::process(
 {
     if (samples.empty() ||
         pitchMarks.empty() ||
+        !std::isfinite(pitchRatio) ||
         pitchRatio <= 0.0f ||
         period <= 0)
     {
         return {};
     }
 
-    // Goal synthesis period based on the pitch ratio
-    float synthesisPeriod =
-        static_cast<float>(period) / pitchRatio;
-
-    // Initialize the output vector with zeros
-    std::vector<float> output(samples.size(), 0.0f);
-
-    // Keep track of the sum of windows, to normalize the Overlap-Add later.
-    std::vector<float> windowSum(samples.size(), 0.0f);
-
-    float outputPosition = 0.0f;
-
+    std::vector<int> analysisMarks;
+    analysisMarks.reserve(pitchMarks.size());
     for (int pitchMark : pitchMarks)
     {
-        // Extract the grain around the pitch mark
+        if (pitchMark >= 0 &&
+            static_cast<size_t>(pitchMark) < samples.size())
+        {
+            analysisMarks.push_back(pitchMark);
+        }
+    }
+
+    if (analysisMarks.empty())
+        return {};
+
+    std::sort(analysisMarks.begin(), analysisMarks.end());
+    analysisMarks.erase(
+        std::unique(analysisMarks.begin(), analysisMarks.end()),
+        analysisMarks.end());
+
+    const double synthesisPeriod =
+        static_cast<double>(period) / pitchRatio;
+    if (!std::isfinite(synthesisPeriod) || synthesisPeriod < 1.0)
+        return {};
+
+    const size_t padding = static_cast<size_t>(period);
+    if (padding > (std::numeric_limits<size_t>::max() - samples.size()) / 2)
+        return {};
+
+    const size_t paddedSize = samples.size() + 2 * padding;
+    std::vector<float> output(paddedSize, 0.0f);
+    std::vector<float> windowSum(paddedSize, 0.0f);
+
+    double outputPosition = analysisMarks.front();
+    size_t sourceMarkIndex = 0;
+
+    while (outputPosition < static_cast<double>(samples.size()))
+    {
+        const size_t roundedPosition =
+            static_cast<size_t>(std::round(outputPosition));
+
+        while (sourceMarkIndex + 1 < analysisMarks.size() &&
+               static_cast<size_t>(analysisMarks[sourceMarkIndex + 1]) <=
+                   roundedPosition)
+        {
+            ++sourceMarkIndex;
+        }
+
+        if (sourceMarkIndex + 1 < analysisMarks.size())
+        {
+            const size_t currentMark =
+                static_cast<size_t>(analysisMarks[sourceMarkIndex]);
+            const size_t nextMark =
+                static_cast<size_t>(analysisMarks[sourceMarkIndex + 1]);
+            const size_t currentDistance = roundedPosition >= currentMark
+                ? roundedPosition - currentMark
+                : currentMark - roundedPosition;
+            const size_t nextDistance = roundedPosition >= nextMark
+                ? roundedPosition - nextMark
+                : nextMark - roundedPosition;
+            if (nextDistance < currentDistance)
+                ++sourceMarkIndex;
+        }
+
         std::vector<float> grain =
             PSOLAGrain::extract(
                 samples,
-                pitchMark,
+                analysisMarks[sourceMarkIndex],
                 period
             );
 
         if (grain.empty())
-            continue;
-
-        int grainSize =
-            static_cast<int>(grain.size());
-
-        int outputStart =
-            static_cast<int>(
-                std::round(
-                    outputPosition - period
-                )
-            );
-
-        for (int i = 0; i < grainSize; ++i)
         {
-            int outputIndex = outputStart + i;
+            outputPosition += synthesisPeriod;
+            continue;
+        }
 
-            if (outputIndex < 0 ||
-                outputIndex >= static_cast<int>(output.size()))
-            {
-                continue;
-            }
+        const size_t outputStart =
+            roundedPosition + padding - static_cast<size_t>(period);
+
+        for (size_t i = 0; i < grain.size(); ++i)
+        {
+            const size_t outputIndex = outputStart + i;
 
             output[outputIndex] += grain[i];
 
-           //Hann Window for Overlap-Add normalization
-            float position =
-                static_cast<float>(i) /
-                static_cast<float>(grainSize - 1);
+            const float position = static_cast<float>(i) /
+                static_cast<float>(grain.size() - 1);
 
-            float window =
-                0.5f * (
-                    1.0f -
-                    std::cos(
-                        2.0f * 3.14159265358979323846f *
-                        position
-                    )
-                );
+            const float window = 0.5f * (
+                1.0f - std::cos(2.0f * 3.14159265358979323846f * position));
 
             windowSum[outputIndex] += window;
         }
@@ -85,14 +118,13 @@ std::vector<float> PSOLAProcessor::process(
         outputPosition += synthesisPeriod;
     }
 
-    // Overlap-Add normalization
     for (size_t i = 0; i < output.size(); ++i)
     {
         if (windowSum[i] > 0.0001f)
-        {
             output[i] /= windowSum[i];
-        }
     }
 
-    return output;
+    return std::vector<float>(
+        output.begin() + static_cast<std::ptrdiff_t>(padding),
+        output.begin() + static_cast<std::ptrdiff_t>(padding + samples.size()));
 }
