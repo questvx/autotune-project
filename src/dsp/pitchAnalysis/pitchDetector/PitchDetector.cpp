@@ -52,16 +52,25 @@ PitchResult PitchDetector::detectPitch(const AudioFrame &frame, float sampleRate
         correlationResult[lag - minLag] = normalizedCorrelation;
     }
 
-    // Find the lag with the maximum correlation
     auto maxIt = std::max_element(
         correlationResult.begin(),
         correlationResult.end());
-
+    size_t maxIndex = static_cast<size_t>(
+        std::distance(correlationResult.begin(), maxIt));
     float maxCorrelation = *maxIt;
 
-    size_t maxIndex = std::distance(
-        correlationResult.begin(),
-        maxIt);
+    for (size_t i = 1; i + 1 < correlationResult.size(); ++i)
+    {
+        const float candidate = correlationResult[i];
+        if (candidate >= threshold &&
+            candidate >= correlationResult[i - 1] &&
+            candidate > correlationResult[i + 1])
+        {
+            maxIndex = i;
+            maxCorrelation = candidate;
+            break;
+        }
+    }
 
     float bestLag = static_cast<float>(minLag + maxIndex);
 

@@ -42,8 +42,13 @@ std::vector<AudioFrame> FrameGenerator::generateFrames(
         return frames;
     }
 
-    // Ensure that all samples are included
-    size_t numFrames = (totalSamples + hopSize - 1) / hopSize;
+    size_t numFrames = totalSamples == 0 ? 0 : 1;
+    if (totalSamples > frameSize)
+    {
+        const size_t samplesAfterFirstFrame = totalSamples - frameSize;
+        numFrames += samplesAfterFirstFrame / hopSize +
+            (samplesAfterFirstFrame % hopSize != 0 ? 1 : 0);
+    }
 
     std::cout << "Number of frames: " << numFrames << "\n";
 
@@ -62,7 +67,7 @@ std::vector<AudioFrame> FrameGenerator::generateFrames(
             audioSamples.begin() + start + samplesToCopy);
 
         // Zero-padding
-        size_t paddingSamples = hopSize - samplesToCopy;
+        size_t paddingSamples = frameSize - samplesToCopy;
         frame.frameSamples.resize(frameSize, 0.0f);
 
         frames.push_back(frame);

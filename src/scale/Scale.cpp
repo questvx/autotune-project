@@ -7,8 +7,9 @@ Scale::Scale(int rootNote, ScaleType type)
 
 bool Scale::isNoteAllowed(int midiNote) const
 {
-    int noteClass = midiNote % 12;
-    int relativeNote = (noteClass - rootNote + 12) % 12;
+    const int noteClass = ((midiNote % 12) + 12) % 12;
+    const int rootNoteClass = ((rootNote % 12) + 12) % 12;
+    const int relativeNote = (noteClass - rootNoteClass + 12) % 12;
 
     if (type == ScaleType::Major)
     {
