@@ -42,10 +42,15 @@ std::vector<float> PSOLAProcessor::process(
 
     const double synthesisPeriod =
         static_cast<double>(period) / pitchRatio;
-    if (!std::isfinite(synthesisPeriod) || synthesisPeriod < 1.0)
+    if (!std::isfinite(synthesisPeriod) ||
+        synthesisPeriod < 1.0 ||
+        synthesisPeriod >
+            static_cast<double>(std::numeric_limits<size_t>::max() / 2))
         return {};
 
-    const size_t padding = static_cast<size_t>(period);
+    const size_t synthesisHalfLength =
+        static_cast<size_t>(std::ceil(synthesisPeriod));
+    const size_t padding = synthesisHalfLength;
     if (padding > (std::numeric_limits<size_t>::max() - samples.size()) / 2)
         return {};
 
@@ -88,7 +93,8 @@ std::vector<float> PSOLAProcessor::process(
             PSOLAGrain::extract(
                 samples,
                 analysisMarks[sourceMarkIndex],
-                period
+                period,
+                synthesisHalfLength
             );
 
         if (grain.empty())
@@ -97,22 +103,15 @@ std::vector<float> PSOLAProcessor::process(
             continue;
         }
 
-        const size_t outputStart =
-            roundedPosition + padding - static_cast<size_t>(period);
+        const size_t outputStart = roundedPosition;
 
         for (size_t i = 0; i < grain.size(); ++i)
         {
             const size_t outputIndex = outputStart + i;
 
             output[outputIndex] += grain[i];
-
-            const float position = static_cast<float>(i) /
-                static_cast<float>(grain.size() - 1);
-
-            const float window = 0.5f * (
-                1.0f - std::cos(2.0f * 3.14159265358979323846f * position));
-
-            windowSum[outputIndex] += window;
+            windowSum[outputIndex] +=
+                PSOLAGrain::hannWindow(i, grain.size());
         }
 
         outputPosition += synthesisPeriod;
@@ -120,7 +119,7 @@ std::vector<float> PSOLAProcessor::process(
 
     for (size_t i = 0; i < output.size(); ++i)
     {
-        if (windowSum[i] > 0.0001f)
+        if (windowSum[i] > std::numeric_limits<float>::epsilon())
             output[i] /= windowSum[i];
     }
 

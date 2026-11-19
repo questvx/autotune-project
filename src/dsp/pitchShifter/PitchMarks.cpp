@@ -28,6 +28,12 @@ std::vector<int> PitchMarks::detect(
         int predictedPosition =
             static_cast<int>(std::round(currentPosition));
 
+        if (predictedPosition < 0 ||
+            static_cast<size_t>(predictedPosition) >= samples.size())
+        {
+            break;
+        }
+
         int searchStart =
             std::max(0, predictedPosition - searchRadius);
 
