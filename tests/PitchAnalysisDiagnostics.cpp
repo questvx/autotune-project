@@ -1,5 +1,6 @@
 #include "wavReader/WavReader.h"
 #include "dsp/frameGenerator/FrameGenerator.h"
+#include "dsp/pitchCorrection/AutoPitchCorrector.h"
 #include "dsp/pitchAnalysis/pitchDetector/PitchDetector.h"
 #include "dsp/pitchAnalysis/pitchToNote/PitchToNote.h"
 #include "dsp/pitchAnalysis/pitchToNote/TargetNote.h"
@@ -14,6 +15,7 @@ namespace
 {
 constexpr float expectedSampleRate = 44100.0f;
 constexpr float frequencyTolerance = 0.03f;
+constexpr float pi = 3.14159265358979323846f;
 
 bool checkSineFrames(
     const std::string& path,
@@ -93,6 +95,78 @@ bool checkCMajorANotes()
 
     return passed;
 }
+
+bool checkAutomaticCorrection()
+{
+    constexpr float inputFrequency = 277.1826f;
+    constexpr float targetFrequency = 261.6256f;
+    const size_t sampleCount =
+        static_cast<size_t>(expectedSampleRate * 2.0f);
+    std::vector<float> input(sampleCount);
+    for (size_t i = 0; i < input.size(); ++i)
+    {
+        input[i] = 0.5f * std::sin(
+            2.0f * pi * inputFrequency * static_cast<float>(i) /
+            expectedSampleRate);
+    }
+
+    const Scale cMajor(60, ScaleType::Major);
+    const AutoPitchCorrectionResult result = AutoPitchCorrector::process(
+        input,
+        expectedSampleRate,
+        cMajor,
+        2048,
+        512,
+        50.0f,
+        1000.0f,
+        0.2f);
+    if (result.samples.size() != input.size() ||
+        result.frameAnalysis.empty())
+    {
+        std::cout << "Automatic correction: FAIL, invalid output\n";
+        return false;
+    }
+
+    size_t framesTargetingC = 0;
+    double centsSum = 0.0;
+    size_t voicedFrames = 0;
+    for (const PitchAnalysisResult& frame : result.frameAnalysis)
+    {
+        if (frame.pitchResult.frequency > 0.0f)
+        {
+            ++voicedFrames;
+            centsSum += frame.cents;
+            if (frame.targetNote.midi == 60)
+                ++framesTargetingC;
+        }
+    }
+
+    const size_t start =
+        static_cast<size_t>(expectedSampleRate * 0.5f);
+    const size_t end =
+        static_cast<size_t>(expectedSampleRate * 1.5f);
+    size_t positiveCrossings = 0;
+    for (size_t i = start + 1; i < end; ++i)
+    {
+        if (result.samples[i - 1] <= 0.0f && result.samples[i] > 0.0f)
+            ++positiveCrossings;
+    }
+
+    const float measuredFrequency =
+        static_cast<float>(positiveCrossings) * expectedSampleRate /
+        static_cast<float>(end - start);
+
+    const bool passed =
+        framesTargetingC * 100 >= result.frameAnalysis.size() * 95 &&
+        std::abs(measuredFrequency - targetFrequency) <= 3.0f;
+
+    std::cout << "Automatic correction: C#4 to C4, measured "
+              << measuredFrequency << " Hz, mean input deviation "
+              << (voicedFrames > 0 ? centsSum / voicedFrames : 0.0)
+              << " cents, "
+              << (passed ? "PASS" : "FAIL") << '\n';
+    return passed;
+}
 }
 
 int main()
@@ -101,5 +175,6 @@ int main()
     passed = checkSineFrames("assets/sine_220.wav", 220.0f) && passed;
     passed = checkSineFrames("assets/sine_880.wav", 880.0f) && passed;
     passed = checkCMajorANotes() && passed;
+    passed = checkAutomaticCorrection() && passed;
     return passed ? 0 : 1;
 }

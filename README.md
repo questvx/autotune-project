@@ -12,6 +12,7 @@ The project demonstrates practical digital signal processing (DSP), audio data h
 - Converts frequencies to MIDI notes and finds the nearest allowed note in a major or minor scale.
 - Calculates the deviation between detected and target pitches in cents.
 - Experiments with pitch-period marking and pitch shifting using PSOLA (Pitch-Synchronous Overlap-Add) with a Hann window.
+- Automatically corrects voiced audio frame by frame toward the selected scale, with smoothed retuning and overlap-add.
 - Writes the processed signal to a WAV file.
 
 ## Tech stack
@@ -41,15 +42,15 @@ The application locates the input file `assets/guitar_h.wav` relative to the exe
 
 ## Tests
 
-The `PSOLADiagnostics` CTest target checks pitch shifting on the included 220 Hz, 440 Hz, and 880 Hz sine WAV files, along with overlap-add coverage on a constant signal. `PitchAnalysisDiagnostics` checks pitch detection across the frames of the 220 Hz and 880 Hz WAV files and verifies that A notes are accepted in C major. In VS Code, configure the project with CMake Tools, build the desired diagnostics target, then run its test from the Testing view.
+The `PSOLADiagnostics` CTest target checks pitch shifting on the included 220 Hz, 440 Hz, and 880 Hz sine WAV files, along with overlap-add coverage on a constant signal. `PitchAnalysisDiagnostics` checks pitch detection across the frames of the 220 Hz and 880 Hz WAV files, verifies that A notes are accepted in C major, and checks automatic correction of C#4 to C4. In VS Code, configure the project with CMake Tools, build the desired diagnostics target, then run its test from the Testing view.
 
 These are focused DSP diagnostics; they do not measure pitch-shifting quality on vocals or real-time performance.
 
 ## Current implementation
 
-`main.cpp` loads the example audio file, splits it into frames of 2048 samples with a hop size of 512 samples, and analyzes pitch in the 50–1000 Hz range. The analysis reports values including frequency, correlation, detected note, target note, and deviation in cents. The example is currently configured to use C major.
+`main.cpp` loads `assets/sine_440.wav`, splits it into frames of 2048 samples with a hop size of 512 samples, and analyzes pitch in the 50–1000 Hz range. It targets C major and applies smoothed PSOLA correction to voiced frames before writing `output.wav`. The analysis also reports frequency, correlation, detected note, target note, and deviation in cents.
 
-In the current version, analysis and pitch shifting are still partly separate demonstration paths: the PSOLA input and target frequencies are hard-coded test values rather than being derived automatically from the analysis result. The program does not yet accept an input path or settings as command-line arguments.
+The example's input path, scale, analysis range, and retune speed are configured in the source code. The program does not yet accept an input path or settings as command-line arguments.
 
 ## Project structure
 
@@ -72,7 +73,7 @@ external/dr_wav.h                  Bundled WAV library
 
 - The application currently reads mono audio and uses the hard-coded files from `assets` folder.
 - Analysis settings, scale, and test pitch-shifting values are configured in the source code.
-- PSOLA is experimental and is not yet integrated with the automatically analyzed notes.
-- There is no graphical interface or real-time audio processing yet. Pitch detection and pitch shifting have only been checked on synthetic sine signals.
+- PSOLA and per-frame correction are experimental; vocal quality and transitions between changing pitches have not yet been validated.
+- There is no graphical interface or real-time audio processing yet. The automatic-correction diagnostic currently uses a synthetic sine signal.
 
-Potential next steps include connecting pitch analysis to correction, adding CLI configuration, expanding audio input support, and adding tests for variable-pitch and vocal signals.
+Potential next steps include adding CLI configuration, expanding audio input support, and adding diagnostics for variable-pitch and vocal signals.

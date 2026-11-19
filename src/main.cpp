@@ -3,13 +3,8 @@
 #include <iomanip>
 #include <filesystem>
 #include "wavReader/WavReader.h"
-#include "dsp/frameGenerator/FrameGenerator.h"
-#include "dsp/pitchAnalysis/pitchAnalyzer/PitchAnalyzer.h"
+#include "dsp/pitchCorrection/AutoPitchCorrector.h"
 #include "scale/Scale.h"
-// temporary
-#include "dsp/PitchShifter/PitchMarks.h"
-#include "dsp/PitchShifter/PSOLAProcessor.h"
-#include <cmath>
 #include "../external/dr_wav.h"
 
 using namespace std;
@@ -27,15 +22,13 @@ static filesystem::path getExecutablePath(const char *argv0)
 
 static filesystem::path getAssetPath(const filesystem::path &exePath)
 {
-    return exePath.parent_path() / ".." / ".." / "assets" / "guitar_h.wav";
+    return exePath.parent_path() / ".." / ".." / "assets" / "sine_440.wav";
 }
 
 // ----- Main function -----
 int main(int argc, char **argv)
 {
     WavReader reader;
-    FrameGenerator generator;
-    PitchAnalyzer analyzer;
     Scale scale(60, ScaleType::Major);
 
     filesystem::path exePath = getExecutablePath(argv[0]);
@@ -50,45 +43,33 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    auto frames = generator.generateFrames(
+    const float sampleRate = static_cast<float>(reader.getSampleRate());
+    AutoPitchCorrectionResult correction = AutoPitchCorrector::process(
         reader.getSamples(),
+        sampleRate,
+        scale,
         2048,
-        512);
-
-    // Temporary --------------------------------------------------------
-    float testFrequency = 261.813f;
-    float targetFrequency = 280.16f;
-
-    float pitchRatio = targetFrequency / testFrequency;
-    // float pitchRatio = 1.0f;
-
-    float period = 44100.0f / testFrequency;
-
-    auto pitchMarks = PitchMarks::detect(
-        reader.getSamples(),
-        testFrequency,
-        44100.0f);
-
-    auto output = PSOLAProcessor::process(
-        reader.getSamples(),
-        pitchMarks,
-        pitchRatio,
-        static_cast<int>(std::round(period)));
-
-    std::cout << "Pitch marks: "
-              << pitchMarks.size() << '\n';
-
-    std::cout << "Pitch ratio: "
-              << pitchRatio << '\n';
+        512,
+        50.0f,
+        1000.0f,
+        0.2f);
+    if (correction.samples.size() != reader.getSamples().size() ||
+        correction.frameAnalysis.empty())
+    {
+        std::cerr << "Failed to automatically correct the input audio.\n";
+        return 1;
+    }
 
     std::cout << "Output samples: "
-              << output.size() << '\n';
+              << correction.samples.size() << '\n';
+    std::cout << "Analyzed frames: "
+              << correction.frameAnalysis.size() << '\n';
 
     drwav_data_format format{};
     format.container = drwav_container_riff;
     format.format = DR_WAVE_FORMAT_IEEE_FLOAT;
     format.channels = 1;
-    format.sampleRate = 44100;
+    format.sampleRate = reader.getSampleRate();
     format.bitsPerSample = 32;
 
     drwav wav{};
@@ -96,17 +77,18 @@ int main(int argc, char **argv)
                      &wav,
                      "output.wav",
                      &format,
-                     static_cast<drwav_uint64>(output.size()),
+                     static_cast<drwav_uint64>(correction.samples.size()),
                      nullptr) != 0;
 
     if (saved)
     {
         const drwav_uint64 framesWritten = drwav_write_pcm_frames(
             &wav,
-            static_cast<drwav_uint64>(output.size()),
-            output.data());
+            static_cast<drwav_uint64>(correction.samples.size()),
+            correction.samples.data());
         const drwav_result uninitResult = drwav_uninit(&wav);
-        saved = framesWritten == output.size() && uninitResult == DRWAV_SUCCESS;
+        saved = framesWritten == correction.samples.size() &&
+            uninitResult == DRWAV_SUCCESS;
     }
 
     if (saved)
@@ -115,16 +97,11 @@ int main(int argc, char **argv)
         std::cout << "Failed to save output.wav\n";
     //------------------------------------------------------------------------
 
-    for (size_t i = 0; i < frames.size(); ++i)
+    for (size_t i = 0; i < correction.frameAnalysis.size(); ++i)
     {
-        PitchAnalysisResult analysis = analyzer.analyze(
-            frames[i],
-            static_cast<float>(reader.getSampleRate()),
-            50.0f,
-            1000.0f,
-            scale);
-
-        float time = static_cast<float>(i * 512) / reader.getSampleRate();
+        const PitchAnalysisResult& analysis = correction.frameAnalysis[i];
+        const float time = static_cast<float>(i * 512) /
+            static_cast<float>(reader.getSampleRate());
 
         const char *noteName = analysis.note.name ? analysis.note.name : "Invalid";
         const char *targetNoteName = analysis.targetNote.name ? analysis.targetNote.name : "Invalid";

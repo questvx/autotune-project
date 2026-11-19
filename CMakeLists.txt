@@ -15,6 +15,9 @@ add_executable(
     src/dsp/pitchAnalysis/pitchToNote/PitchToNote.cpp
     src/dsp/pitchAnalysis/pitchToNote/TargetNote.cpp
     src/dsp/pitchAnalysis/cents/Cents.cpp
+    src/dsp/pitchCorrection/AutoPitchCorrector.cpp
+    src/dsp/pitchCorrection/PitchCorrection.cpp
+    src/dsp/retuneSpeed/RetuneSpeed.cpp
     src/scale/Scale.cpp
     src/dsp/pitchShifter/PitchMarks.cpp
     src/dsp/pitchShifter/PSOLAGrain.cpp
@@ -45,9 +48,17 @@ if(BUILD_TESTING)
         tests/PitchAnalysisDiagnostics.cpp
         src/wavReader/WavReader.cpp
         src/dsp/frameGenerator/FrameGenerator.cpp
+        src/dsp/pitchAnalysis/pitchAnalyzer/PitchAnalyzer.cpp
         src/dsp/pitchAnalysis/pitchDetector/PitchDetector.cpp
         src/dsp/pitchAnalysis/pitchToNote/PitchToNote.cpp
         src/dsp/pitchAnalysis/pitchToNote/TargetNote.cpp
+        src/dsp/pitchAnalysis/cents/Cents.cpp
+        src/dsp/pitchCorrection/AutoPitchCorrector.cpp
+        src/dsp/pitchCorrection/PitchCorrection.cpp
+        src/dsp/retuneSpeed/RetuneSpeed.cpp
+        src/dsp/pitchShifter/PitchMarks.cpp
+        src/dsp/pitchShifter/PSOLAGrain.cpp
+        src/dsp/pitchShifter/PSOLAProcessor.cpp
         src/scale/Scale.cpp
     )
 
