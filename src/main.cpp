@@ -22,7 +22,7 @@ static filesystem::path getExecutablePath(const char *argv0)
 
 static filesystem::path getAssetPath(const filesystem::path &exePath)
 {
-    return exePath.parent_path() / ".." / ".." / "assets" / "sine_440.wav";
+    return exePath.parent_path() / ".." / ".." / "assets" / "mamcita.wav";
 }
 
 // ----- Main function -----
@@ -52,7 +52,7 @@ int main(int argc, char **argv)
         512,
         50.0f,
         1000.0f,
-        0.2f);
+        1.0f);
     if (correction.samples.size() != reader.getSamples().size() ||
         correction.frameAnalysis.empty())
     {
