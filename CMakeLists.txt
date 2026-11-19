@@ -20,3 +20,41 @@ add_executable(
     src/dsp/pitchShifter/PSOLAGrain.cpp
     src/dsp/pitchShifter/PSOLAProcessor.cpp
 )
+
+include(CTest)
+
+if(BUILD_TESTING)
+    add_executable(
+        PSOLADiagnostics
+        tests/PSOLADiagnostics.cpp
+        src/wavReader/WavReader.cpp
+        src/dsp/pitchShifter/PitchMarks.cpp
+        src/dsp/pitchShifter/PSOLAGrain.cpp
+        src/dsp/pitchShifter/PSOLAProcessor.cpp
+    )
+
+    target_include_directories(PSOLADiagnostics PRIVATE src)
+    add_test(NAME PSOLADiagnostics COMMAND PSOLADiagnostics)
+    set_tests_properties(
+        PSOLADiagnostics
+        PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    )
+
+    add_executable(
+        PitchAnalysisDiagnostics
+        tests/PitchAnalysisDiagnostics.cpp
+        src/wavReader/WavReader.cpp
+        src/dsp/frameGenerator/FrameGenerator.cpp
+        src/dsp/pitchAnalysis/pitchDetector/PitchDetector.cpp
+        src/dsp/pitchAnalysis/pitchToNote/PitchToNote.cpp
+        src/dsp/pitchAnalysis/pitchToNote/TargetNote.cpp
+        src/scale/Scale.cpp
+    )
+
+    target_include_directories(PitchAnalysisDiagnostics PRIVATE src)
+    add_test(NAME PitchAnalysisDiagnostics COMMAND PitchAnalysisDiagnostics)
+    set_tests_properties(
+        PitchAnalysisDiagnostics
+        PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    )
+endif()

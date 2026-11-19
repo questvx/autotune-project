@@ -39,6 +39,12 @@ cmake --build build --config Debug
 
 The application locates the input file `assets/guitar_h.wav` relative to the executable. Run it from the repository root to place the generated `output.wav` there. For a Release build, use `--config Release` and run `.\build\Release\AutoTuneEngineering.exe`.
 
+## Tests
+
+The `PSOLADiagnostics` CTest target checks pitch shifting on the included 220 Hz, 440 Hz, and 880 Hz sine WAV files, along with overlap-add coverage on a constant signal. `PitchAnalysisDiagnostics` checks pitch detection across the frames of the 220 Hz and 880 Hz WAV files and verifies that A notes are accepted in C major. In VS Code, configure the project with CMake Tools, build the desired diagnostics target, then run its test from the Testing view.
+
+These are focused DSP diagnostics; they do not measure pitch-shifting quality on vocals or real-time performance.
+
 ## Current implementation
 
 `main.cpp` loads the example audio file, splits it into frames of 2048 samples with a hop size of 512 samples, and analyzes pitch in the 50–1000 Hz range. The analysis reports values including frequency, correlation, detected note, target note, and deviation in cents. The example is currently configured to use C major.
@@ -67,6 +73,6 @@ external/dr_wav.h                  Bundled WAV library
 - The application currently reads mono audio and uses the hard-coded files from `assets` folder.
 - Analysis settings, scale, and test pitch-shifting values are configured in the source code.
 - PSOLA is experimental and is not yet integrated with the automatically analyzed notes.
-- There is no graphical interface, real-time audio processing, or automated test suite yet.
+- There is no graphical interface or real-time audio processing yet. Pitch detection and pitch shifting have only been checked on synthetic sine signals.
 
-Potential next steps include connecting pitch analysis to correction, adding CLI configuration, expanding audio input support, and writing tests for the DSP algorithms.
+Potential next steps include connecting pitch analysis to correction, adding CLI configuration, expanding audio input support, and adding tests for variable-pitch and vocal signals.
