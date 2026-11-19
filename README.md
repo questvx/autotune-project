@@ -42,13 +42,13 @@ The application locates the input file `assets/guitar_h.wav` relative to the exe
 
 ## Tests
 
-The `PSOLADiagnostics` CTest target checks pitch shifting on the included 220 Hz, 440 Hz, and 880 Hz sine WAV files, along with overlap-add coverage on a constant signal. `PitchAnalysisDiagnostics` checks pitch detection across the frames of the 220 Hz and 880 Hz WAV files, verifies that A notes are accepted in C major, and checks automatic correction of C#4 to C4. In VS Code, configure the project with CMake Tools, build the desired diagnostics target, then run its test from the Testing view.
+The `PSOLADiagnostics` CTest target checks pitch shifting on the included 220 Hz, 440 Hz, and 880 Hz sine WAV files, along with overlap-add coverage on a constant signal. `PitchAnalysisDiagnostics` checks pitch detection across the frames of the 220 Hz and 880 Hz WAV files, verifies that A notes are accepted in C major, checks C#4-to-C4 correction, and verifies transparent pass-through for both unvoiced silence and an in-scale 440 Hz sine. In VS Code, configure the project with CMake Tools, build the desired diagnostics target, then run its test from the Testing view.
 
 These are focused DSP diagnostics; they do not measure pitch-shifting quality on vocals or real-time performance.
 
 ## Current implementation
 
-`main.cpp` loads `assets/sine_440.wav`, splits it into frames of 2048 samples with a hop size of 512 samples, and analyzes pitch in the 50–1000 Hz range. It targets C major and applies smoothed PSOLA correction to voiced frames before writing `output.wav`. The analysis also reports frequency, correlation, detected note, target note, and deviation in cents.
+`main.cpp` loads the WAV path configured in `getAssetPath`, splits it into frames of 2048 samples with a hop size of 512 samples, and analyzes pitch in the 50–1000 Hz range. It targets C major and applies smoothed per-frame PSOLA correction to voiced frames before writing `output.wav`. The analysis also reports frequency, correlation, detected note, target note, and deviation in cents.
 
 The example's input path, scale, analysis range, and retune speed are configured in the source code. The program does not yet accept an input path or settings as command-line arguments.
 

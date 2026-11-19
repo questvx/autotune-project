@@ -6,6 +6,7 @@
 #include "dsp/pitchAnalysis/pitchToNote/TargetNote.h"
 #include "scale/Scale.h"
 
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <string>
@@ -167,6 +168,75 @@ bool checkAutomaticCorrection()
               << (passed ? "PASS" : "FAIL") << '\n';
     return passed;
 }
+
+bool checkUnvoicedPassThrough()
+{
+    const std::vector<float> input(
+        static_cast<size_t>(expectedSampleRate * 0.25f),
+        0.0f);
+    const Scale cMajor(60, ScaleType::Major);
+    const AutoPitchCorrectionResult result = AutoPitchCorrector::process(
+        input,
+        expectedSampleRate,
+        cMajor,
+        2048,
+        512,
+        50.0f,
+        1000.0f,
+        0.2f);
+
+    const bool passed =
+        result.samples == input &&
+        !result.frameAnalysis.empty();
+    std::cout << "Unvoiced pass-through: "
+              << (passed ? "PASS" : "FAIL") << '\n';
+    return passed;
+}
+
+bool checkInScaleToneIsUnchanged()
+{
+    constexpr float inputFrequency = 440.0f;
+    const size_t sampleCount = static_cast<size_t>(expectedSampleRate);
+    std::vector<float> input(sampleCount);
+    for (size_t i = 0; i < input.size(); ++i)
+    {
+        input[i] = 0.5f * std::sin(
+            2.0f * pi * inputFrequency * static_cast<float>(i) /
+            expectedSampleRate);
+    }
+
+    const Scale cMajor(60, ScaleType::Major);
+    const AutoPitchCorrectionResult result = AutoPitchCorrector::process(
+        input,
+        expectedSampleRate,
+        cMajor,
+        2048,
+        512,
+        50.0f,
+        1000.0f,
+        0.2f);
+    if (result.samples.size() != input.size() ||
+        result.frameAnalysis.empty())
+    {
+        std::cout << "In-scale 440 Hz pass-through: FAIL, invalid output\n";
+        return false;
+    }
+
+    float maximumDifference = 0.0f;
+    for (size_t i = 0; i < input.size(); ++i)
+    {
+        maximumDifference = std::max(
+            maximumDifference,
+            std::abs(input[i] - result.samples[i]));
+    }
+
+    const bool passed = maximumDifference < 1e-5f;
+    std::cout << "In-scale 440 Hz pass-through: "
+              << (passed ? "PASS" : "FAIL")
+              << ", maximum sample difference "
+              << maximumDifference << '\n';
+    return passed;
+}
 }
 
 int main()
@@ -176,5 +246,7 @@ int main()
     passed = checkSineFrames("assets/sine_880.wav", 880.0f) && passed;
     passed = checkCMajorANotes() && passed;
     passed = checkAutomaticCorrection() && passed;
+    passed = checkUnvoicedPassThrough() && passed;
+    passed = checkInScaleToneIsUnchanged() && passed;
     return passed ? 0 : 1;
 }

@@ -14,6 +14,8 @@
 
 namespace
 {
+constexpr float minimumEffectiveCorrectionCents = 5.0f;
+
 int findPhaseAlignment(
     const std::vector<float>& frame,
     const std::vector<float>& accumulatedSamples,
@@ -143,9 +145,12 @@ AutoPitchCorrectionResult AutoPitchCorrector::process(
             : 0.0f;
         const float smoothedCorrection =
             correctionSmoother.process(targetCorrection);
+        const bool needsPitchShift = voiced &&
+            std::abs(smoothedCorrection) >
+                minimumEffectiveCorrectionCents;
 
         std::vector<float> correctedFrame;
-        if (voiced)
+        if (needsPitchShift)
         {
             const float ratio = std::pow(
                 2.0f, smoothedCorrection / 1200.0f);
@@ -179,7 +184,7 @@ AutoPitchCorrectionResult AutoPitchCorrector::process(
         }
 
         const size_t frameStart = frameIndex * hopSize;
-        const int phaseShift = voiced
+        const int phaseShift = needsPitchShift
             ? findPhaseAlignment(
                 correctedFrame,
                 result.samples,
