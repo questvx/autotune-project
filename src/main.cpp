@@ -22,14 +22,14 @@ static filesystem::path getExecutablePath(const char *argv0)
 
 static filesystem::path getAssetPath(const filesystem::path &exePath)
 {
-    return exePath.parent_path() / ".." / ".." / "assets" / "mamcita.wav";
+    return exePath.parent_path() / ".." / ".." / "assets" / "vocal_1.wav";
 }
 
 // ----- Main function -----
 int main(int argc, char **argv)
 {
     WavReader reader;
-    Scale scale(60, ScaleType::Major);
+    Scale scale(64, ScaleType::Minor);
 
     filesystem::path exePath = getExecutablePath(argv[0]);
     filesystem::path assetPath = getAssetPath(exePath);
@@ -52,9 +52,11 @@ int main(int argc, char **argv)
         512,
         50.0f,
         1000.0f,
-        1.0f);
+        0.1f);
     if (correction.samples.size() != reader.getSamples().size() ||
-        correction.frameAnalysis.empty())
+        correction.frameAnalysis.empty() ||
+        correction.frameDiagnostics.size() !=
+            correction.frameAnalysis.size())
     {
         std::cerr << "Failed to automatically correct the input audio.\n";
         return 1;
@@ -75,7 +77,7 @@ int main(int argc, char **argv)
     drwav wav{};
     bool saved = drwav_init_file_write_sequential_pcm_frames(
                      &wav,
-                     "output.wav",
+                     "output_2.wav",
                      &format,
                      static_cast<drwav_uint64>(correction.samples.size()),
                      nullptr) != 0;
@@ -100,6 +102,8 @@ int main(int argc, char **argv)
     for (size_t i = 0; i < correction.frameAnalysis.size(); ++i)
     {
         const PitchAnalysisResult& analysis = correction.frameAnalysis[i];
+        const PitchCorrectionFrameDiagnostics& diagnostics =
+            correction.frameDiagnostics[i];
         const float time = static_cast<float>(i * 512) /
             static_cast<float>(reader.getSampleRate());
 
@@ -124,7 +128,23 @@ int main(int argc, char **argv)
                   << " ct | Target Note: "
                   << targetNoteName
                   << " | MIDI: "
-                  << analysis.targetNote.midi;
+                  << analysis.targetNote.midi
+                  << " | Tracked F0: "
+                  << diagnostics.trackedFrequency
+                  << " Hz | Stable target MIDI: "
+                  << diagnostics.targetMidi
+                  << " | Smoothed target: "
+                  << diagnostics.smoothedTargetFrequency
+                  << " Hz | Requested correction: "
+                  << diagnostics.requestedCorrectionCents
+                  << " ct | Applied correction: "
+                  << diagnostics.smoothedCorrectionCents
+                  << " ct | Ratio: "
+                  << diagnostics.pitchRatio
+                  << " | Local phase shift: "
+                  << diagnostics.phaseShiftSamples
+                  << " samples | PSOLA: "
+                  << (diagnostics.pitchShiftApplied ? "yes" : "no");
     }
 
     return 0;

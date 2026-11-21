@@ -6,11 +6,13 @@
 #include "../pitchShifter/PSOLAGrain.h"
 #include "../pitchShifter/PSOLAProcessor.h"
 #include "PitchCorrection.h"
+#include "PitchFrameStabilizer.h"
 #include "../retuneSpeed/RetuneSpeed.h"
 
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <vector>
 
 namespace
 {
@@ -116,48 +118,72 @@ AutoPitchCorrectionResult AutoPitchCorrector::process(
 
     FrameGenerator frameGenerator;
     PitchAnalyzer pitchAnalyzer;
-    RetuneSpeed correctionSmoother(retuneSpeed);
     const std::vector<AudioFrame> frames =
         frameGenerator.generateFrames(samples, frameSize, hopSize);
     if (frames.empty())
         return result;
 
-    result.samples.assign(samples.size(), 0.0f);
     result.frameAnalysis.reserve(frames.size());
-    std::vector<float> windowSum(samples.size(), 0.0f);
-
-    for (size_t frameIndex = 0; frameIndex < frames.size(); ++frameIndex)
+    for (const AudioFrame& frame : frames)
     {
-        const AudioFrame& frame = frames[frameIndex];
-        PitchAnalysisResult analysis = pitchAnalyzer.analyze(
+        result.frameAnalysis.push_back(pitchAnalyzer.analyze(
             frame,
             sampleRate,
             minFrequency,
             maxFrequency,
-            scale);
-        result.frameAnalysis.push_back(analysis);
+            scale));
+    }
 
-        const bool voiced =
-            analysis.pitchResult.frequency > 0.0f &&
-            analysis.targetFrequency > 0.0f;
-        const float targetCorrection = voiced
-            ? PitchCorrection::calculate(analysis.cents)
+    const std::vector<TrackedPitchFrame> trackedFrames =
+        PitchFrameStabilizer::stabilize(
+            result.frameAnalysis,
+            minFrequency,
+            maxFrequency);
+    result.samples.assign(samples.size(), 0.0f);
+    result.frameDiagnostics.reserve(frames.size());
+    std::vector<float> windowSum(samples.size(), 0.0f);
+    RetuneSpeed correctionSmoother(retuneSpeed);
+
+    for (size_t frameIndex = 0; frameIndex < frames.size(); ++frameIndex)
+    {
+        const AudioFrame& frame = frames[frameIndex];
+        const PitchAnalysisResult& analysis =
+            result.frameAnalysis[frameIndex];
+        const TrackedPitchFrame& tracked = trackedFrames[frameIndex];
+
+        PitchCorrectionFrameDiagnostics diagnostics;
+        diagnostics.trackedFrequency = tracked.frequency;
+        diagnostics.confidence = analysis.pitchResult.correlation;
+        diagnostics.targetMidi = tracked.targetNote.midi;
+        diagnostics.targetFrequency = tracked.targetFrequency;
+        diagnostics.smoothedTargetFrequency = tracked.targetFrequency;
+        diagnostics.voiced = tracked.voiced;
+
+        const float targetCorrection = tracked.voiced
+            ? PitchCorrection::calculate(
+                1200.0f * std::log2(
+                    tracked.frequency / tracked.targetFrequency))
             : 0.0f;
+        diagnostics.requestedCorrectionCents = targetCorrection;
         const float smoothedCorrection =
             correctionSmoother.process(targetCorrection);
-        const bool needsPitchShift = voiced &&
+        diagnostics.smoothedCorrectionCents = smoothedCorrection;
+
+        const float ratio = std::pow(
+            2.0f,
+            smoothedCorrection / 1200.0f);
+        if (!std::isfinite(ratio) || ratio <= 0.0f)
+            return {};
+
+        const bool needsPitchShift = tracked.voiced &&
             std::abs(smoothedCorrection) >
                 minimumEffectiveCorrectionCents;
-
         std::vector<float> correctedFrame;
         if (needsPitchShift)
         {
-            const float ratio = std::pow(
-                2.0f, smoothedCorrection / 1200.0f);
             const float periodValue =
-                sampleRate / analysis.pitchResult.frequency;
-            if (!std::isfinite(ratio) ||
-                !std::isfinite(periodValue) ||
+                sampleRate / tracked.frequency;
+            if (!std::isfinite(periodValue) ||
                 periodValue < 1.0f ||
                 periodValue > static_cast<float>(
                     std::numeric_limits<int>::max()))
@@ -168,7 +194,7 @@ AutoPitchCorrectionResult AutoPitchCorrector::process(
             const int period = static_cast<int>(std::round(periodValue));
             const std::vector<int> pitchMarks = PitchMarks::detect(
                 frame.frameSamples,
-                analysis.pitchResult.frequency,
+                tracked.frequency,
                 sampleRate);
             correctedFrame = PSOLAProcessor::process(
                 frame.frameSamples,
@@ -190,9 +216,15 @@ AutoPitchCorrectionResult AutoPitchCorrector::process(
                 result.samples,
                 windowSum,
                 frameStart,
-                analysis.targetFrequency,
+                tracked.targetFrequency,
                 sampleRate)
             : 0;
+
+        diagnostics.pitchShiftApplied = needsPitchShift;
+        diagnostics.pitchRatio = needsPitchShift ? ratio : 1.0f;
+        diagnostics.phaseShiftSamples = phaseShift;
+        result.frameDiagnostics.push_back(diagnostics);
+
         for (size_t i = 0; i < frameSize; ++i)
         {
             const size_t outputIndex = frameStart + i;
