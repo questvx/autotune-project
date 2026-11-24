@@ -128,8 +128,9 @@ std::vector<TrackedPitchFrame> PitchFrameStabilizer::stabilize(
         const float currentTargetDeviationCents = std::abs(
             1200.0f * std::log2(
                 frame.frequency / frame.targetFrequency));
-        if (acceptedTargetDeviationCents -
-                currentTargetDeviationCents >= 250.0f)
+        if (acceptedTargetDeviationCents >= 250.0f &&
+            acceptedTargetDeviationCents -
+                currentTargetDeviationCents >= 100.0f)
         {
             acceptedTargetMidi = frame.targetNote.midi;
             acceptedTargetFrequency = frame.targetFrequency;

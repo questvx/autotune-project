@@ -22,14 +22,14 @@ static filesystem::path getExecutablePath(const char *argv0)
 
 static filesystem::path getAssetPath(const filesystem::path &exePath)
 {
-    return exePath.parent_path() / ".." / ".." / "assets" / "vocal_1.wav";
+    return exePath.parent_path() / ".." / ".." / "assets" / "rainbow2.wav";
 }
 
 // ----- Main function -----
 int main(int argc, char **argv)
 {
     WavReader reader;
-    Scale scale(64, ScaleType::Minor);
+    Scale scale(60, ScaleType::Major);
 
     filesystem::path exePath = getExecutablePath(argv[0]);
     filesystem::path assetPath = getAssetPath(exePath);
@@ -52,7 +52,7 @@ int main(int argc, char **argv)
         512,
         50.0f,
         1000.0f,
-        0.1f);
+        0.05f);
     if (correction.samples.size() != reader.getSamples().size() ||
         correction.frameAnalysis.empty() ||
         correction.frameDiagnostics.size() !=
@@ -77,7 +77,7 @@ int main(int argc, char **argv)
     drwav wav{};
     bool saved = drwav_init_file_write_sequential_pcm_frames(
                      &wav,
-                     "output_2.wav",
+                     "output_3.wav",
                      &format,
                      static_cast<drwav_uint64>(correction.samples.size()),
                      nullptr) != 0;
@@ -94,9 +94,9 @@ int main(int argc, char **argv)
     }
 
     if (saved)
-        std::cout << "Output saved to output.wav\n";
+        std::cout << "Output saved to output_3.wav\n";
     else
-        std::cout << "Failed to save output.wav\n";
+        std::cout << "Failed to save output_3.wav\n";
     //------------------------------------------------------------------------
 
     for (size_t i = 0; i < correction.frameAnalysis.size(); ++i)

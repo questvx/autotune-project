@@ -37,7 +37,7 @@ PitchAnalysisResult PitchAnalyzer::analyze(
 
     // 3. Find target note based on scale
     result.targetNote = TargetNote::getTargetNote(
-        result.note,
+        result.pitchResult.frequency,
         scale
     );
 

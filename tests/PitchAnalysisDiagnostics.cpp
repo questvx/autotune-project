@@ -2,6 +2,7 @@
 #include "dsp/frameGenerator/FrameGenerator.h"
 #include "dsp/pitchCorrection/AutoPitchCorrector.h"
 #include "dsp/pitchCorrection/PitchFrameStabilizer.h"
+#include "dsp/pitchAnalysis/pitchAnalyzer/PitchAnalyzer.h"
 #include "dsp/pitchAnalysis/pitchDetector/PitchDetector.h"
 #include "dsp/pitchAnalysis/pitchToNote/PitchToNote.h"
 #include "dsp/pitchAnalysis/pitchToNote/TargetNote.h"
@@ -113,6 +114,61 @@ bool checkCMajorANotes()
         passed = notePassed && passed;
     }
 
+    return passed;
+}
+
+bool checkTargetSelectionUsesMeasuredPitch()
+{
+    constexpr size_t frameSize = 2048;
+    constexpr float centsAboveFSharp = 40.0f;
+    const float fSharpPlus40Cents =
+        PitchToNote::midiNoteToFrequency(66) *
+        std::pow(2.0f, centsAboveFSharp / 1200.0f);
+    const float ePlus40Cents =
+        PitchToNote::midiNoteToFrequency(64) *
+        std::pow(2.0f, centsAboveFSharp / 1200.0f);
+
+    AudioFrame fSharpFrame;
+    AudioFrame eFrame;
+    fSharpFrame.frameSamples.resize(frameSize);
+    eFrame.frameSamples.resize(frameSize);
+    for (size_t i = 0; i < frameSize; ++i)
+    {
+        const float time = static_cast<float>(i) / expectedSampleRate;
+        fSharpFrame.frameSamples[i] = 0.5f * std::sin(
+            2.0f * pi * fSharpPlus40Cents * time);
+        eFrame.frameSamples[i] = 0.5f * std::sin(
+            2.0f * pi * ePlus40Cents * time);
+    }
+
+    PitchAnalyzer analyzer;
+    const Scale cMajor(60, ScaleType::Major);
+    const Scale cMinor(60, ScaleType::Minor);
+    const PitchAnalysisResult fSharpAnalysis = analyzer.analyze(
+        fSharpFrame,
+        expectedSampleRate,
+        50.0f,
+        1000.0f,
+        cMajor);
+    const PitchAnalysisResult eAnalysis = analyzer.analyze(
+        eFrame,
+        expectedSampleRate,
+        50.0f,
+        1000.0f,
+        cMinor);
+
+    const bool passed =
+        std::abs(fSharpAnalysis.pitchResult.frequency -
+                 fSharpPlus40Cents) < 1.0f &&
+        fSharpAnalysis.targetNote.midi == 67 &&
+        std::abs(eAnalysis.pitchResult.frequency - ePlus40Cents) < 1.0f &&
+        eAnalysis.targetNote.midi == 65;
+    std::cout << "Scale target uses measured pitch (F#+40c to G, "
+                 "E+40c to F in C minor): "
+              << (passed ? "PASS" : "FAIL")
+              << ", targets "
+              << fSharpAnalysis.targetNote.midi << " and "
+              << eAnalysis.targetNote.midi << '\n';
     return passed;
 }
 
@@ -404,6 +460,31 @@ bool checkPitchFrameStabilizer()
     const bool largeChangePassed =
         stableLargeTargetChange[1].targetNote.midi == 74;
 
+    const PitchAnalysisResult gSharp5 = makeAnalysisFrame(
+        830.6094f,
+        0.98f,
+        80,
+        830.6094f);
+    std::vector<PitchAnalysisResult> closeLargeTargetChange{
+        gSharp5,
+        makeAnalysisFrame(
+            984.0f,
+            0.98f,
+            82,
+            PitchToNote::midiNoteToFrequency(82)),
+        makeAnalysisFrame(
+            984.0f,
+            0.98f,
+            82,
+            PitchToNote::midiNoteToFrequency(82))};
+    const std::vector<TrackedPitchFrame> stableCloseLargeTargetChange =
+        PitchFrameStabilizer::stabilize(
+            closeLargeTargetChange,
+            50.0f,
+            1000.0f);
+    const bool closerTargetPassed =
+        stableCloseLargeTargetChange[1].targetNote.midi == 82;
+
     std::vector<PitchAnalysisResult> naturalPitchVariation{
         makeAnalysisFrame(430.0f, 0.98f, 69, 440.0f),
         makeAnalysisFrame(435.0f, 0.98f, 69, 440.0f),
@@ -433,10 +514,19 @@ bool checkPitchFrameStabilizer()
         hysteresisPassed &&
         octaveHysteresisPassed &&
         largeChangePassed &&
+        closerTargetPassed &&
         naturalVariationPassed;
     std::cout << "Pitch-frame stabilization (octave spike, short gap, "
                  "confidence, target hysteresis, natural F0 movement): "
-              << (passed ? "PASS" : "FAIL") << '\n';
+              << (passed ? "PASS" : "FAIL")
+              << " [octave=" << octavePassed
+              << ", gap=" << gapPassed
+              << ", confidence=" << confidencePassed
+              << ", hysteresis=" << hysteresisPassed
+              << ", octave-change=" << octaveHysteresisPassed
+              << ", large-change=" << largeChangePassed
+              << ", closer-target=" << closerTargetPassed
+              << ", natural-F0=" << naturalVariationPassed << "]\n";
     return passed;
 }
 }
@@ -447,6 +537,7 @@ int main()
     passed = checkSineFrames("assets/sine_220.wav", 220.0f) && passed;
     passed = checkSineFrames("assets/sine_880.wav", 880.0f) && passed;
     passed = checkCMajorANotes() && passed;
+    passed = checkTargetSelectionUsesMeasuredPitch() && passed;
     passed = checkAutomaticCorrection() && passed;
     passed = checkUnvoicedPassThrough() && passed;
     passed = checkInScaleToneIsUnchanged() && passed;
