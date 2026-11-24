@@ -168,35 +168,60 @@ stosowane do całej ramki, mimo że korelacja liczona jest tylko na obszarze,
 w którym istnieje wcześniejsze nakładane wyjście. To może zmieniać również
 fragment ramki poza obszarem użytym do oceny dopasowania.
 
-Proponowane dalsze kroki:
-1. Dodać do diagnostyki wartość korelacji najlepszego przesunięcia oraz
-   informację, czy wybrane przesunięcie osiągnęło granicę zakresu. Obecny
-   log podaje samo phaseShiftSamples, więc nie pokazuje, czy wybór był
-   jednoznaczny.
-2. Dodać test kontrolowany na stałym sinusie z korekcją: przy stałym F0,
-   celu i ratio sprawdzać stabilność przesunięcia po odwinięciu fazy
-   modulo okres docelowy. Dodać również przypadek z krótką luką oraz
-   przebiegiem o zmiennym F0, by nie optymalizować tylko pod sinus.
-3. Porównać render z dopasowaniem fazy i bez niego na tym samym wokalu,
-   zachowując identyczne F0, cele, ratio, okno Hann i overlap-add.
-   Pozwoli to odizolować wpływ samego alignera.
-4. Jeśli testy potwierdzą skoki, stabilizować wybór przesunięcia pomiędzy
-   ramkami: najpierw odwinąć je modulo okresu, następnie dodać karę za
-   nieuzasadnioną zmianę względem poprzedniej ramki. Nie wprowadzać
-   arbitralnego limitu przed sprawdzeniem, czy nie pogarsza śledzenia
-   rzeczywistych zmian fazy.
-5. Rozważyć ograniczenie przesuwania do obszaru nakładania albo
-   niecykliczne przesunięcie z bezpiecznym dopełnieniem. Obecne cykliczne
-   obracanie całej ramki może przenosić próbki z końca na początek.
+Wykonane testy diagnostyczne:
+1. Do diagnostyki ramki dodano znormalizowaną korelację najlepszego
+   przesunięcia, limit przeszukiwania, flagę osiągnięcia granicy oraz
+   informację, czy dopasowanie było możliwe. Parametr
+   phaseAlignmentEnabled pozwala porównać oba warianty; domyślnie
+   dopasowanie pozostaje włączone.
+2. Na stałym sinusie C#4 (277,18 Hz) z korekcją do C4 (261,63 Hz)
+   dopasowanie było ważne w 169 ramkach, średnia korelacja wyniosła
+   0,9928, a granica zakresu została osiągnięta 5 razy. Po odwinięciu
+   zmiany przesunięcia modulo okresu mediana zmiany ze znakiem wyniosła
+   -30 próbek; 90. percentyl wartości bezwzględnej to 47 próbek,
+   99. percentyl i maksimum to 62 próbki. Różnica F0 wejścia i celu
+   przewiduje naturalny dryf fazy około -30 próbek na krok 512 próbek;
+   90. percentyl reszty po odjęciu tego dryfu wyniósł 16,6 próbek.
+   Nie należy więc traktować całej zmiany przesunięcia jako jitteru
+   ani karać jej bez modelowania różnicy częstotliwości.
+3. Ten sam sinus wyrenderowano z alignerem i bez niego, przy tych samych
+   decyzjach nutowych i ratio. F0 wyjścia z alignerem wyniosło 261,67 Hz,
+   a bez alignera 277,22 Hz (czyli pozostało bliskie F0 wejściowemu).
+   RMS różnicy renderów wyniósł 0,4238. W tym kontrolowanym przypadku
+   dopasowanie fazy jest potrzebne, aby overlap-add zachował przesunięty
+   pitch.
+4. Dodano także przypadek zmiennego F0 z krótką ciszą. Potwierdza on
+   poprawność diagnostyki w warunkach innych niż stały sinus, bez
+   narzucania arbitralnego progu na zmianę fazy.
+5. Wykonano A/B na rainbow2.wav. Oba renderowania zachowały identyczne
+   decyzje pitch/target/ratio. W 1754 ramkach dopasowanie było ważne;
+   średnia korelacja wyniosła 0,9465, granica została osiągnięta 67 razy.
+   Mediana zmiany przesunięcia ze znakiem wyniosła -3 próbki, 90. percentyl
+   zmiany bezwzględnej 47 próbek, 99. percentyl 84 próbki, maksimum
+   114 próbek. 90. percentyl reszty względem prostego przewidywanego
+   dryfu wyniósł 49,0 próbek. RMS różnicy wokalnych renderów wyniósł
+   0,01458.
 
-Najpierw należy wykonać kroki diagnostyczne 1-3, a dopiero potem zmieniać
-algorytm. Testy sinusoidalne PSOLA potwierdzają zmianę częstotliwości,
-ale obecne testy nie sprawdzają stabilności phaseShiftSamples między
-ramkami ani jakości wokalowej.
+Interpretacja i dalsze kroki:
+Porównanie izoluje działanie alignera, ponieważ analiza F0, cele i ratio
+były takie same w obu renderach. Wynik na sinusie pokazuje, że nie należy
+wyłączać alignera ani ograniczać przesunięcia tylko dlatego, że zmienia
+się ono między ramkami. Na wokalu zmierzone korelacje i reszty nie
+rozstrzygają, czy aligner odpowiada za słyszalne bulgotanie; potrzebne jest
+odsłuchanie plików A/B. Render z alignerem i bez niego znajduje się w
+build/phase-comparison jako rainbow2_phase_alignment_on.wav oraz
+rainbow2_phase_alignment_off.wav.
+
+Na tym etapie nie dodano stabilizacji fazy ani ograniczenia przesuwania do
+obszaru nakładania: dane nie uzasadniają jeszcze takiej zmiany, a prosta
+kara za zmianę przesunięcia mogłaby tłumić oczekiwany dryf wynikający z
+różnicy F0 i celu. Następnym krokiem jest odsłuchanie obu renderów i
+zapisanie, który brzmi lepiej oraz w których fragmentach. Dopiero wtedy
+warto rozważyć regularyzację z uwzględnieniem przewidywanego dryfu i
+ponownie porównać jakość oraz ciągłość.
 
 Uwaga o konfiguracji:
 Ustawienia wypisane w starszej sekcji konfiguracji przykładu są
 historyczne. Pomiar z 2026-11-24 używał ustawień wymienionych powyżej.
-W aktualnym main.cpp program zapisuje output_3.wav, ale komunikat
-terminala nadal informuje o output_2.wav; przy odsłuchu należy sprawdzić
-rzeczywistą nazwę pliku.
+Komunikat w main.cpp został poprawiony i jest zgodny z nazwą
+output_3.wav.

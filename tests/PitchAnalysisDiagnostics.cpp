@@ -7,11 +7,15 @@
 #include "dsp/pitchAnalysis/pitchToNote/PitchToNote.h"
 #include "dsp/pitchAnalysis/pitchToNote/TargetNote.h"
 #include "scale/Scale.h"
+#include "../external/dr_wav.h"
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <iostream>
+#include <limits>
 #include <string>
+#include <system_error>
 #include <vector>
 
 namespace
@@ -285,6 +289,488 @@ bool checkAutomaticCorrection()
     return passed;
 }
 
+struct PhaseAlignmentStatistics
+{
+    size_t validFrames = 0;
+    size_t boundaryHits = 0;
+    double meanCorrelation = 0.0;
+    std::vector<double> wrappedFrameDeltas;
+    std::vector<double> absoluteWrappedFrameDeltas;
+    std::vector<double> expectedDriftResiduals;
+};
+
+PhaseAlignmentStatistics summarizePhaseAlignment(
+    const AutoPitchCorrectionResult& result,
+    float sampleRate,
+    size_t hopSize)
+{
+    PhaseAlignmentStatistics statistics;
+    double correlationSum = 0.0;
+    const PitchCorrectionFrameDiagnostics* previous = nullptr;
+
+    for (const PitchCorrectionFrameDiagnostics& diagnostics :
+         result.frameDiagnostics)
+    {
+        if (!diagnostics.phaseAlignmentValid)
+        {
+            previous = nullptr;
+            continue;
+        }
+
+        ++statistics.validFrames;
+        statistics.boundaryHits +=
+            diagnostics.phaseShiftAtSearchLimit ? 1 : 0;
+        correlationSum += diagnostics.phaseAlignmentCorrelation;
+        if (previous != nullptr)
+        {
+            const double period =
+                sampleRate / diagnostics.targetFrequency;
+            double delta = diagnostics.phaseShiftSamples -
+                previous->phaseShiftSamples;
+            delta -= std::round(delta / period) * period;
+            const double expectedDrift =
+                hopSize *
+                (diagnostics.targetFrequency -
+                 diagnostics.trackedFrequency) /
+                diagnostics.targetFrequency;
+            double driftResidual = delta - expectedDrift;
+            driftResidual -= std::round(driftResidual / period) * period;
+            statistics.wrappedFrameDeltas.push_back(delta);
+            statistics.absoluteWrappedFrameDeltas.push_back(
+                std::abs(delta));
+            statistics.expectedDriftResiduals.push_back(
+                std::abs(driftResidual));
+        }
+        previous = &diagnostics;
+    }
+
+    if (statistics.validFrames > 0)
+    {
+        statistics.meanCorrelation = correlationSum /
+            static_cast<double>(statistics.validFrames);
+    }
+    std::sort(
+        statistics.wrappedFrameDeltas.begin(),
+        statistics.wrappedFrameDeltas.end());
+    std::sort(
+        statistics.absoluteWrappedFrameDeltas.begin(),
+        statistics.absoluteWrappedFrameDeltas.end());
+    std::sort(
+        statistics.expectedDriftResiduals.begin(),
+        statistics.expectedDriftResiduals.end());
+    return statistics;
+}
+
+double percentile(
+    const std::vector<double>& sortedValues,
+    double percentileValue)
+{
+    if (sortedValues.empty())
+        return 0.0;
+
+    const size_t index = static_cast<size_t>(std::ceil(
+        percentileValue * sortedValues.size())) - 1;
+    return sortedValues[std::min(index, sortedValues.size() - 1)];
+}
+
+float estimatePositiveCrossingFrequency(
+    const std::vector<float>& samples,
+    float sampleRate)
+{
+    if (samples.size() < static_cast<size_t>(sampleRate * 0.2f))
+        return 0.0f;
+
+    const size_t start = static_cast<size_t>(sampleRate * 0.1f);
+    const size_t end = samples.size() - start;
+    size_t crossings = 0;
+    for (size_t i = start + 1; i < end; ++i)
+    {
+        if (samples[i - 1] <= 0.0f && samples[i] > 0.0f)
+            ++crossings;
+    }
+
+    return static_cast<float>(crossings) * sampleRate /
+        static_cast<float>(end - start);
+}
+
+double calculateRmsDifference(
+    const std::vector<float>& first,
+    const std::vector<float>& second)
+{
+    if (first.size() != second.size() || first.empty())
+        return 0.0;
+
+    double sumSquares = 0.0;
+    for (size_t i = 0; i < first.size(); ++i)
+    {
+        const double difference = first[i] - second[i];
+        sumSquares += difference * difference;
+    }
+    return std::sqrt(sumSquares / static_cast<double>(first.size()));
+}
+
+bool checkPhaseAlignmentOnSteadyTone()
+{
+    constexpr float inputFrequency = 277.1826f;
+    constexpr float targetFrequency = 261.6256f;
+    const size_t sampleCount =
+        static_cast<size_t>(expectedSampleRate * 2.0f);
+    std::vector<float> input(sampleCount);
+    for (size_t i = 0; i < input.size(); ++i)
+    {
+        input[i] = 0.5f * std::sin(
+            2.0f * pi * inputFrequency * static_cast<float>(i) /
+            expectedSampleRate);
+    }
+
+    const Scale cMajor(60, ScaleType::Major);
+    const AutoPitchCorrectionResult aligned = AutoPitchCorrector::process(
+        input,
+        expectedSampleRate,
+        cMajor,
+        2048,
+        512,
+        50.0f,
+        1000.0f,
+        1.0f,
+        true);
+    const AutoPitchCorrectionResult unaligned = AutoPitchCorrector::process(
+        input,
+        expectedSampleRate,
+        cMajor,
+        2048,
+        512,
+        50.0f,
+        1000.0f,
+        1.0f,
+        false);
+    if (aligned.samples.size() != input.size() ||
+        unaligned.samples.size() != input.size() ||
+        aligned.frameAnalysis.size() != unaligned.frameAnalysis.size() ||
+        aligned.frameDiagnostics.size() !=
+            unaligned.frameDiagnostics.size())
+    {
+        std::cout << "Phase alignment steady-tone A/B: FAIL, invalid output\n";
+        return false;
+    }
+
+    bool samePitchDecisions = true;
+    bool validCorrelations = true;
+    bool disabledAlignmentIsTransparent = true;
+    for (size_t i = 0; i < aligned.frameAnalysis.size(); ++i)
+    {
+        const PitchCorrectionFrameDiagnostics& withAlignment =
+            aligned.frameDiagnostics[i];
+        const PitchCorrectionFrameDiagnostics& withoutAlignment =
+            unaligned.frameDiagnostics[i];
+        samePitchDecisions = samePitchDecisions &&
+            aligned.frameAnalysis[i].targetNote.midi ==
+                unaligned.frameAnalysis[i].targetNote.midi &&
+            withAlignment.targetMidi == withoutAlignment.targetMidi &&
+            withAlignment.trackedFrequency ==
+                withoutAlignment.trackedFrequency &&
+            withAlignment.pitchRatio == withoutAlignment.pitchRatio &&
+            withAlignment.smoothedCorrectionCents ==
+                withoutAlignment.smoothedCorrectionCents;
+        validCorrelations = validCorrelations &&
+            (!withAlignment.phaseAlignmentValid ||
+             (std::isfinite(withAlignment.phaseAlignmentCorrelation) &&
+              withAlignment.phaseAlignmentCorrelation >= -1.0001f &&
+              withAlignment.phaseAlignmentCorrelation <= 1.0001f));
+        disabledAlignmentIsTransparent =
+            disabledAlignmentIsTransparent &&
+            withoutAlignment.phaseShiftSamples == 0 &&
+            !withoutAlignment.phaseAlignmentValid;
+    }
+
+    const PhaseAlignmentStatistics statistics =
+        summarizePhaseAlignment(aligned, expectedSampleRate, 512);
+    const double maximumWrappedDelta =
+        statistics.absoluteWrappedFrameDeltas.empty()
+        ? 0.0
+        : statistics.absoluteWrappedFrameDeltas.back();
+    const float alignedFrequency = estimatePositiveCrossingFrequency(
+        aligned.samples, expectedSampleRate);
+    const float unalignedFrequency = estimatePositiveCrossingFrequency(
+        unaligned.samples, expectedSampleRate);
+    const double renderDifference = calculateRmsDifference(
+        aligned.samples, unaligned.samples);
+    const bool passed =
+        samePitchDecisions &&
+        validCorrelations &&
+        disabledAlignmentIsTransparent &&
+        statistics.validFrames > 0 &&
+        std::abs(alignedFrequency - targetFrequency) <= 3.0f &&
+        std::isfinite(unalignedFrequency) &&
+        unalignedFrequency > 0.0f;
+
+    std::cout << "Phase alignment steady-tone A/B: "
+              << (passed ? "PASS" : "FAIL")
+              << ", valid=" << statistics.validFrames
+              << ", mean correlation=" << statistics.meanCorrelation
+              << ", boundary hits=" << statistics.boundaryHits
+              << ", signed wrapped delta median="
+              << percentile(
+                     statistics.wrappedFrameDeltas, 0.50)
+              << " samples, absolute delta p90/p99/max="
+              << percentile(
+                     statistics.absoluteWrappedFrameDeltas, 0.90) << '/'
+              << percentile(
+                     statistics.absoluteWrappedFrameDeltas, 0.99) << '/'
+              << maximumWrappedDelta
+              << " samples, expected-drift residual p90="
+              << percentile(statistics.expectedDriftResiduals, 0.90)
+              << " samples, output F0 with/without="
+              << alignedFrequency << '/' << unalignedFrequency
+              << " Hz, render RMS difference=" << renderDifference
+              << '\n';
+    return passed;
+}
+
+bool checkPhaseAlignmentOnChangingToneWithGap()
+{
+    const size_t sampleCount =
+        static_cast<size_t>(expectedSampleRate * 2.0f);
+    const size_t gapStart =
+        static_cast<size_t>(expectedSampleRate * 0.9f);
+    const size_t gapEnd =
+        static_cast<size_t>(expectedSampleRate * 0.91f);
+    std::vector<float> input(sampleCount);
+    double phase = 0.0;
+    for (size_t i = 0; i < input.size(); ++i)
+    {
+        const float time = static_cast<float>(i) / expectedSampleRate;
+        const float frequency = 270.0f + 20.0f * time;
+        phase += 2.0 * pi * frequency / expectedSampleRate;
+        input[i] = i >= gapStart && i < gapEnd
+            ? 0.0f
+            : 0.5f * static_cast<float>(std::sin(phase));
+    }
+
+    const Scale cMajor(60, ScaleType::Major);
+    const AutoPitchCorrectionResult result = AutoPitchCorrector::process(
+        input,
+        expectedSampleRate,
+        cMajor,
+        2048,
+        512,
+        50.0f,
+        1000.0f,
+        0.2f,
+        true);
+    if (result.samples.size() != input.size() ||
+        result.frameDiagnostics.size() != result.frameAnalysis.size())
+    {
+        std::cout << "Phase alignment changing-tone/gap: FAIL, invalid output\n";
+        return false;
+    }
+
+    size_t validAlignments = 0;
+    size_t shiftedFrames = 0;
+    float minimumTrackedFrequency =
+        std::numeric_limits<float>::infinity();
+    float maximumTrackedFrequency = 0.0f;
+    bool diagnosticsValid = true;
+    bool finiteOutput = true;
+    for (const PitchCorrectionFrameDiagnostics& diagnostics :
+         result.frameDiagnostics)
+    {
+        if (diagnostics.voiced)
+        {
+            minimumTrackedFrequency = std::min(
+                minimumTrackedFrequency,
+                diagnostics.trackedFrequency);
+            maximumTrackedFrequency = std::max(
+                maximumTrackedFrequency,
+                diagnostics.trackedFrequency);
+        }
+        shiftedFrames += diagnostics.pitchShiftApplied ? 1 : 0;
+        if (diagnostics.phaseAlignmentValid)
+        {
+            ++validAlignments;
+            diagnosticsValid = diagnosticsValid &&
+                std::isfinite(diagnostics.phaseAlignmentCorrelation) &&
+                diagnostics.phaseShiftSearchLimitSamples > 0 &&
+                std::abs(diagnostics.phaseShiftSamples) <=
+                    diagnostics.phaseShiftSearchLimitSamples &&
+                diagnostics.phaseShiftAtSearchLimit ==
+                    (std::abs(diagnostics.phaseShiftSamples) ==
+                     diagnostics.phaseShiftSearchLimitSamples);
+        }
+    }
+    for (float sample : result.samples)
+        finiteOutput = finiteOutput && std::isfinite(sample);
+
+    const bool trackedChangingPitch =
+        maximumTrackedFrequency - minimumTrackedFrequency >= 15.0f;
+    const bool passed =
+        validAlignments > 0 &&
+        shiftedFrames > 0 &&
+        trackedChangingPitch &&
+        diagnosticsValid &&
+        finiteOutput;
+    std::cout << "Phase alignment changing tone with short gap: "
+              << (passed ? "PASS" : "FAIL")
+              << ", voiced F0 range=" << minimumTrackedFrequency << '-'
+              << maximumTrackedFrequency
+              << " Hz, shifted frames=" << shiftedFrames
+              << ", valid alignment frames=" << validAlignments << '\n';
+    return passed;
+}
+
+bool writeFloatWav(
+    const std::filesystem::path& path,
+    unsigned int sampleRate,
+    const std::vector<float>& samples)
+{
+    const std::string pathString = path.string();
+    drwav_data_format format{};
+    format.container = drwav_container_riff;
+    format.format = DR_WAVE_FORMAT_IEEE_FLOAT;
+    format.channels = 1;
+    format.sampleRate = sampleRate;
+    format.bitsPerSample = 32;
+
+    drwav wav{};
+    if (!drwav_init_file_write_sequential_pcm_frames(
+            &wav,
+            pathString.c_str(),
+            &format,
+            static_cast<drwav_uint64>(samples.size()),
+            nullptr))
+    {
+        return false;
+    }
+
+    const drwav_uint64 framesWritten = drwav_write_pcm_frames(
+        &wav,
+        static_cast<drwav_uint64>(samples.size()),
+        samples.data());
+    const drwav_result uninitResult = drwav_uninit(&wav);
+    return framesWritten == samples.size() &&
+        uninitResult == DRWAV_SUCCESS;
+}
+
+bool comparePhaseAlignmentOnInput(
+    const std::filesystem::path& inputPath,
+    const std::filesystem::path& outputDirectory)
+{
+    WavReader reader;
+    if (!reader.load(inputPath) ||
+        reader.getSampleRate() == 0 ||
+        reader.getChannels() != 1)
+    {
+        std::cerr << "Could not load mono WAV input "
+                  << inputPath << '\n';
+        return false;
+    }
+    std::error_code directoryError;
+    std::filesystem::create_directories(outputDirectory, directoryError);
+    if (directoryError || !std::filesystem::is_directory(outputDirectory))
+    {
+        std::cerr << "Output directory does not exist: "
+                  << outputDirectory << '\n';
+        return false;
+    }
+
+    const float sampleRate = static_cast<float>(reader.getSampleRate());
+    const Scale cMajor(60, ScaleType::Major);
+    const AutoPitchCorrectionResult aligned = AutoPitchCorrector::process(
+        reader.getSamples(),
+        sampleRate,
+        cMajor,
+        2048,
+        512,
+        50.0f,
+        1000.0f,
+        0.05f,
+        true);
+    const AutoPitchCorrectionResult unaligned = AutoPitchCorrector::process(
+        reader.getSamples(),
+        sampleRate,
+        cMajor,
+        2048,
+        512,
+        50.0f,
+        1000.0f,
+        0.05f,
+        false);
+    if (aligned.samples.size() != reader.getSamples().size() ||
+        unaligned.samples.size() != reader.getSamples().size() ||
+        aligned.frameAnalysis.size() != unaligned.frameAnalysis.size())
+    {
+        std::cerr << "Phase alignment A/B render failed\n";
+        return false;
+    }
+
+    bool samePitchDecisions = true;
+    for (size_t i = 0; i < aligned.frameAnalysis.size(); ++i)
+    {
+        const PitchCorrectionFrameDiagnostics& withAlignment =
+            aligned.frameDiagnostics[i];
+        const PitchCorrectionFrameDiagnostics& withoutAlignment =
+            unaligned.frameDiagnostics[i];
+        samePitchDecisions = samePitchDecisions &&
+            aligned.frameAnalysis[i].targetNote.midi ==
+                unaligned.frameAnalysis[i].targetNote.midi &&
+            withAlignment.targetMidi == withoutAlignment.targetMidi &&
+            withAlignment.trackedFrequency ==
+                withoutAlignment.trackedFrequency &&
+            withAlignment.pitchRatio == withoutAlignment.pitchRatio &&
+            withAlignment.smoothedCorrectionCents ==
+                withoutAlignment.smoothedCorrectionCents;
+    }
+
+    const std::string stem = inputPath.stem().string();
+    const std::filesystem::path alignedPath =
+        outputDirectory / (stem + "_phase_alignment_on.wav");
+    const std::filesystem::path unalignedPath =
+        outputDirectory / (stem + "_phase_alignment_off.wav");
+    if (std::filesystem::exists(alignedPath) ||
+        std::filesystem::exists(unalignedPath))
+    {
+        std::cerr << "A/B WAV files already exist in "
+                  << outputDirectory
+                  << "; choose a different output directory\n";
+        return false;
+    }
+    const bool filesWritten =
+        writeFloatWav(alignedPath, reader.getSampleRate(), aligned.samples) &&
+        writeFloatWav(unalignedPath, reader.getSampleRate(), unaligned.samples);
+    if (!filesWritten)
+    {
+        std::cerr << "Could not write both A/B WAV renders\n";
+        return false;
+    }
+
+    const PhaseAlignmentStatistics statistics =
+        summarizePhaseAlignment(aligned, sampleRate, 512);
+    std::cout << "Vocal phase-alignment A/B: "
+              << (samePitchDecisions ? "same pitch decisions" :
+                                      "pitch decisions differ")
+              << ", valid alignment frames=" << statistics.validFrames
+              << ", mean correlation=" << statistics.meanCorrelation
+              << ", boundary hits=" << statistics.boundaryHits
+              << ", signed wrapped delta median="
+              << percentile(statistics.wrappedFrameDeltas, 0.50)
+              << ", absolute delta p90/p99/max="
+              << percentile(
+                     statistics.absoluteWrappedFrameDeltas, 0.90) << '/'
+              << percentile(
+                     statistics.absoluteWrappedFrameDeltas, 0.99) << '/'
+              << (statistics.absoluteWrappedFrameDeltas.empty()
+                      ? 0.0
+                      : statistics.absoluteWrappedFrameDeltas.back())
+              << " samples, expected-drift residual p90="
+              << percentile(statistics.expectedDriftResiduals, 0.90)
+              << " samples, render RMS difference="
+              << calculateRmsDifference(aligned.samples, unaligned.samples)
+              << '\n'
+              << "Alignment on: " << alignedPath << '\n'
+              << "Alignment off: " << unalignedPath << '\n';
+    return samePitchDecisions;
+}
+
 bool checkUnvoicedPassThrough()
 {
     const std::vector<float> input(
@@ -531,7 +1017,7 @@ bool checkPitchFrameStabilizer()
 }
 }
 
-int main()
+int main(int argc, char** argv)
 {
     bool passed = true;
     passed = checkSineFrames("assets/sine_220.wav", 220.0f) && passed;
@@ -542,5 +1028,19 @@ int main()
     passed = checkUnvoicedPassThrough() && passed;
     passed = checkInScaleToneIsUnchanged() && passed;
     passed = checkPitchFrameStabilizer() && passed;
+
+    passed = checkPhaseAlignmentOnSteadyTone() && passed;
+    passed = checkPhaseAlignmentOnChangingToneWithGap() && passed;
+    if (argc == 3)
+    {
+        passed = comparePhaseAlignmentOnInput(argv[1], argv[2]) && passed;
+    }
+    else if (argc != 1)
+    {
+        std::cerr << "Usage: PitchAnalysisDiagnostics "
+                     "[input-mono.wav output-directory]\n";
+        passed = false;
+    }
+
     return passed ? 0 : 1;
 }

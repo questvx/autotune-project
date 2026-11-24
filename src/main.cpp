@@ -22,7 +22,7 @@ static filesystem::path getExecutablePath(const char *argv0)
 
 static filesystem::path getAssetPath(const filesystem::path &exePath)
 {
-    return exePath.parent_path() / ".." / ".." / "assets" / "rainbow2.wav";
+    return exePath.parent_path() / ".." / ".." / "assets" / "gosia1.wav";
 }
 
 // ----- Main function -----
@@ -52,7 +52,7 @@ int main(int argc, char **argv)
         512,
         50.0f,
         1000.0f,
-        0.05f);
+        1.0f);
     if (correction.samples.size() != reader.getSamples().size() ||
         correction.frameAnalysis.empty() ||
         correction.frameDiagnostics.size() !=
@@ -144,7 +144,15 @@ int main(int argc, char **argv)
                   << " | Local phase shift: "
                   << diagnostics.phaseShiftSamples
                   << " samples | PSOLA: "
-                  << (diagnostics.pitchShiftApplied ? "yes" : "no");
+                  << (diagnostics.pitchShiftApplied ? "yes" : "no")
+                  << " | Phase alignment correlation: "
+                  << diagnostics.phaseAlignmentCorrelation
+                  << " | Search limit: "
+                  << diagnostics.phaseShiftSearchLimitSamples
+                  << " samples | Boundary hit: "
+                  << (diagnostics.phaseShiftAtSearchLimit ? "yes" : "no")
+                  << " | Alignment valid: "
+                  << (diagnostics.phaseAlignmentValid ? "yes" : "no");
     }
 
     return 0;

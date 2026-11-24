@@ -17,8 +17,12 @@ struct PitchCorrectionFrameDiagnostics
     float smoothedCorrectionCents = 0.0f;
     float pitchRatio = 1.0f;
     int phaseShiftSamples = 0;
+    int phaseShiftSearchLimitSamples = 0;
+    float phaseAlignmentCorrelation = 0.0f;
     bool voiced = false;
     bool pitchShiftApplied = false;
+    bool phaseAlignmentValid = false;
+    bool phaseShiftAtSearchLimit = false;
 };
 
 struct AutoPitchCorrectionResult
@@ -39,6 +43,7 @@ public:
         size_t hopSize,
         float minFrequency,
         float maxFrequency,
-        float retuneSpeed
+        float retuneSpeed,
+        bool phaseAlignmentEnabled = true
     );
 };

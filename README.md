@@ -42,9 +42,15 @@ The application locates the input file `assets/guitar_h.wav` relative to the exe
 
 ## Tests
 
-The `PSOLADiagnostics` CTest target checks pitch shifting on the included 220 Hz, 440 Hz, and 880 Hz sine WAV files, along with overlap-add coverage on a constant signal. `PitchAnalysisDiagnostics` checks pitch detection across the frames of the 220 Hz and 880 Hz WAV files, verifies that A notes are accepted in C major, checks scale-target choice from measured pitch on either side of chromatic midpoints, checks C#4-to-C4 correction, and verifies transparent pass-through for both unvoiced silence and an in-scale 440 Hz sine. It also exercises stabilization against a one-frame octave error, a short unvoiced gap, low-confidence detection, target hysteresis and pitch-leap recovery, and preservation of valid frame-to-frame F0 movement. In VS Code, configure the project with CMake Tools, build the desired diagnostics target, then run its test from the Testing view.
+The `PSOLADiagnostics` CTest target checks pitch shifting on the included 220 Hz, 440 Hz, and 880 Hz sine WAV files, along with overlap-add coverage on a constant signal. `PitchAnalysisDiagnostics` checks pitch detection across the frames of the 220 Hz and 880 Hz WAV files, verifies scale-target selection from measured pitch, checks C#4-to-C4 correction and transparent pass-through, exercises frame stabilization, and diagnoses phase alignment on a steady sine and a changing-pitch signal with a short gap. In VS Code, configure the project with CMake Tools, build the desired diagnostics target, then run its test from the Testing view.
 
-These are focused DSP diagnostics; they do not measure pitch-shifting quality on vocals or real-time performance.
+To render a mono vocal twice with identical pitch analysis and correction settings, once with phase alignment and once without it, run from the repository root:
+
+```powershell
+.\build\Debug\PitchAnalysisDiagnostics.exe assets\rainbow2.wav build\phase-comparison
+```
+
+The command creates the output directory if needed and writes `<input>_phase_alignment_on.wav` and `<input>_phase_alignment_off.wav`; choose a new output directory if those files already exist. It also reports phase-correlation, search-boundary, unwrapped-shift, and render-difference metrics. These diagnostics do not replace subjective listening or measure real-time performance.
 
 ## Current implementation
 

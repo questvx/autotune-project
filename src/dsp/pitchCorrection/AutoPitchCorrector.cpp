@@ -18,7 +18,15 @@ namespace
 {
 constexpr float minimumEffectiveCorrectionCents = 5.0f;
 
-int findPhaseAlignment(
+struct PhaseAlignmentResult
+{
+    int shiftSamples = 0;
+    int searchLimitSamples = 0;
+    float correlation = 0.0f;
+    bool valid = false;
+};
+
+PhaseAlignmentResult findPhaseAlignment(
     const std::vector<float>& frame,
     const std::vector<float>& accumulatedSamples,
     const std::vector<float>& windowSum,
@@ -30,7 +38,7 @@ int findPhaseAlignment(
         !std::isfinite(targetFrequency) ||
         targetFrequency <= 0.0f)
     {
-        return 0;
+        return {};
     }
 
     const int maxShift = std::min(
@@ -38,8 +46,10 @@ int findPhaseAlignment(
         static_cast<int>(std::round(
             sampleRate / targetFrequency * 0.5f)));
     if (maxShift == 0)
-        return 0;
+        return {};
 
+    PhaseAlignmentResult result;
+    result.searchLimitSamples = maxShift;
     int bestShift = 0;
     double bestCorrelation = -std::numeric_limits<double>::infinity();
     for (int shift = -maxShift; shift <= maxShift; ++shift)
@@ -84,7 +94,14 @@ int findPhaseAlignment(
         }
     }
 
-    return bestShift;
+    if (std::isfinite(bestCorrelation))
+    {
+        result.shiftSamples = bestShift;
+        result.correlation = static_cast<float>(bestCorrelation);
+        result.valid = true;
+    }
+
+    return result;
 }
 }
 
@@ -96,7 +113,8 @@ AutoPitchCorrectionResult AutoPitchCorrector::process(
     size_t hopSize,
     float minFrequency,
     float maxFrequency,
-    float retuneSpeed)
+    float retuneSpeed,
+    bool phaseAlignmentEnabled)
 {
     AutoPitchCorrectionResult result;
     if (samples.empty() ||
@@ -210,7 +228,8 @@ AutoPitchCorrectionResult AutoPitchCorrector::process(
         }
 
         const size_t frameStart = frameIndex * hopSize;
-        const int phaseShift = needsPitchShift
+        const PhaseAlignmentResult phaseAlignment =
+            needsPitchShift && phaseAlignmentEnabled
             ? findPhaseAlignment(
                 correctedFrame,
                 result.samples,
@@ -218,11 +237,18 @@ AutoPitchCorrectionResult AutoPitchCorrector::process(
                 frameStart,
                 tracked.targetFrequency,
                 sampleRate)
-            : 0;
+            : PhaseAlignmentResult{};
 
         diagnostics.pitchShiftApplied = needsPitchShift;
         diagnostics.pitchRatio = needsPitchShift ? ratio : 1.0f;
-        diagnostics.phaseShiftSamples = phaseShift;
+        diagnostics.phaseShiftSamples = phaseAlignment.shiftSamples;
+        diagnostics.phaseShiftSearchLimitSamples =
+            phaseAlignment.searchLimitSamples;
+        diagnostics.phaseAlignmentCorrelation = phaseAlignment.correlation;
+        diagnostics.phaseAlignmentValid = phaseAlignment.valid;
+        diagnostics.phaseShiftAtSearchLimit = phaseAlignment.valid &&
+            std::abs(phaseAlignment.shiftSamples) ==
+                phaseAlignment.searchLimitSamples;
         result.frameDiagnostics.push_back(diagnostics);
 
         for (size_t i = 0; i < frameSize; ++i)
@@ -232,7 +258,7 @@ AutoPitchCorrectionResult AutoPitchCorrector::process(
                 break;
 
             const size_t shiftedIndex = static_cast<size_t>(
-                (static_cast<long long>(i) + phaseShift +
+                (static_cast<long long>(i) + phaseAlignment.shiftSamples +
                  static_cast<long long>(frameSize)) %
                 static_cast<long long>(frameSize));
             const float window = PSOLAGrain::hannWindow(i, frameSize);
