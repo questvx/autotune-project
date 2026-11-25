@@ -45,6 +45,7 @@ public:
         float maxFrequency,
         float retuneSpeed,
         bool phaseAlignmentEnabled = true,
-        bool phaseContinuityEnabled = true
+        bool phaseContinuityEnabled = true,
+        float flexTune = 0.0f
     );
 };

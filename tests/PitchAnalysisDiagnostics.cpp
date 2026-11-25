@@ -1127,6 +1127,111 @@ bool compareF0AcrossRenders(
     return voicedComparisons > 0;
 }
 
+bool checkFlexTuneSoftZone()
+{
+    constexpr float targetFrequency = 261.6256f;
+    constexpr float smallDeviationCents = 10.0f;
+    constexpr float transitionDeviationCents = 40.0f;
+    constexpr float largeDeviationCents = 80.0f;
+    constexpr size_t sampleCount =
+        static_cast<size_t>(expectedSampleRate);
+    const Scale cMajor(60, ScaleType::Major);
+
+    auto renderTone = [&](float deviationCents, float flexTune)
+    {
+        const float inputFrequency = targetFrequency *
+            std::pow(2.0f, deviationCents / 1200.0f);
+        std::vector<float> input(sampleCount);
+        for (size_t i = 0; i < input.size(); ++i)
+        {
+            input[i] = 0.5f * std::sin(
+                2.0f * pi * inputFrequency * static_cast<float>(i) /
+                expectedSampleRate);
+        }
+
+        return AutoPitchCorrector::process(
+            input,
+            expectedSampleRate,
+            cMajor,
+            2048,
+            512,
+            50.0f,
+            1000.0f,
+            1.0f,
+            true,
+            true,
+            flexTune);
+    };
+
+    const AutoPitchCorrectionResult smallWithoutFlex =
+        renderTone(smallDeviationCents, 0.0f);
+    const AutoPitchCorrectionResult smallWithFlex =
+        renderTone(smallDeviationCents, 1.0f);
+    const AutoPitchCorrectionResult transitionWithFlex =
+        renderTone(transitionDeviationCents, 1.0f);
+    const AutoPitchCorrectionResult largeWithoutFlex =
+        renderTone(largeDeviationCents, 0.0f);
+    const AutoPitchCorrectionResult largeWithFlex =
+        renderTone(largeDeviationCents, 1.0f);
+    const size_t steadyFrameIndex =
+        static_cast<size_t>(expectedSampleRate * 0.5f / 512.0f);
+
+    const auto hasSteadyVoicedFrame =
+        [steadyFrameIndex](const AutoPitchCorrectionResult& result)
+    {
+        return result.samples.size() == sampleCount &&
+            result.frameDiagnostics.size() > steadyFrameIndex &&
+            result.frameDiagnostics[steadyFrameIndex].voiced;
+    };
+    if (!hasSteadyVoicedFrame(smallWithoutFlex) ||
+        !hasSteadyVoicedFrame(smallWithFlex) ||
+        !hasSteadyVoicedFrame(transitionWithFlex) ||
+        !hasSteadyVoicedFrame(largeWithoutFlex) ||
+        !hasSteadyVoicedFrame(largeWithFlex))
+    {
+        std::cout << "Flex Tune soft zone: FAIL, invalid voiced output\n";
+        return false;
+    }
+
+    const float smallCorrectionWithoutFlex =
+        smallWithoutFlex.frameDiagnostics[steadyFrameIndex]
+            .smoothedCorrectionCents;
+    const float smallCorrectionWithFlex =
+        smallWithFlex.frameDiagnostics[steadyFrameIndex]
+            .smoothedCorrectionCents;
+    const float transitionCorrection =
+        transitionWithFlex.frameDiagnostics[steadyFrameIndex]
+            .smoothedCorrectionCents;
+    const float largeCorrectionWithoutFlex =
+        largeWithoutFlex.frameDiagnostics[steadyFrameIndex]
+            .smoothedCorrectionCents;
+    const float largeCorrectionWithFlex =
+        largeWithFlex.frameDiagnostics[steadyFrameIndex]
+            .smoothedCorrectionCents;
+
+    const bool passed =
+        std::abs(smallCorrectionWithoutFlex) > 5.0f &&
+        std::abs(smallCorrectionWithFlex) < 1.0f &&
+        std::abs(transitionCorrection) > 0.0f &&
+        std::abs(transitionCorrection) <
+            transitionDeviationCents * 0.75f &&
+        std::abs(largeCorrectionWithoutFlex) > 60.0f &&
+        std::abs(
+            largeCorrectionWithFlex - largeCorrectionWithoutFlex) <
+            0.1f;
+    std::cout << "Flex Tune soft zone: small correction "
+              << smallCorrectionWithoutFlex << " -> "
+              << smallCorrectionWithFlex
+              << " cents, transition correction "
+              << transitionCorrection
+              << " cents, large correction "
+              << largeCorrectionWithoutFlex << " -> "
+              << largeCorrectionWithFlex
+              << " cents, "
+              << (passed ? "PASS" : "FAIL") << '\n';
+    return passed;
+}
+
 bool checkUnvoicedPassThrough()
 {
     const std::vector<float> input(
@@ -1428,6 +1533,7 @@ int main(int argc, char** argv)
     passed = checkCMajorANotes() && passed;
     passed = checkTargetSelectionUsesMeasuredPitch() && passed;
     passed = checkAutomaticCorrection() && passed;
+    passed = checkFlexTuneSoftZone() && passed;
     passed = checkUnvoicedPassThrough() && passed;
     passed = checkInScaleToneIsUnchanged() && passed;
     passed = checkPitchFrameStabilizer() && passed;
