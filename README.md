@@ -38,15 +38,15 @@ cmake --build build --config Debug --target AutoTuneStandalone
 .\build\AutoTuneStandalone_artefacts\Debug\AutoTune.exe
 ```
 
-The standalone interface uses a compact tuner-style layout. It lets you choose an input WAV and output path, set the root note and major/minor scale, and adjust retune speed. A waveform preview is shown for the selected audio. Processing runs in the background, and the current reader supports mono WAV files only.
+The standalone interface uses a compact tuner-style layout. It lets you choose an input WAV and output path, set the root note and major/minor scale, and adjust retune speed and Flex Tune. Flex Tune keeps small pitch deviations more natural: at 100%, correction is suppressed within 30 cents, fades in smoothly from 30 to 60 cents, and remains full above 60 cents. A waveform preview is shown for the selected audio. Processing runs in the background, and the current reader supports mono WAV files only.
 
-Flex Tune, Natural Vibrato, Humanize, Input Type, Transpose, and Low Latency are shown as work in progress. They are disabled and do not affect the rendered audio yet.
+Natural Vibrato, Humanize, Input Type, Transpose, and Low Latency are shown as work in progress. They are disabled and do not affect the rendered audio yet.
 
 The original `AutoTuneEngineering` command-line target remains available. Its input path and settings are configured in `src/main.cpp`.
 
 ## Tests
 
-The `PSOLADiagnostics` CTest target checks pitch shifting on the included 220 Hz, 440 Hz, and 880 Hz sine WAV files, along with overlap-add coverage on a constant signal. `PitchAnalysisDiagnostics` checks pitch detection across the frames of the 220 Hz and 880 Hz WAV files, verifies scale-target selection from measured pitch, checks C#4-to-C4 correction and transparent pass-through, exercises frame stabilization, and diagnoses phase alignment on a steady sine and a changing-pitch signal with a short gap. In VS Code, configure the project with CMake Tools, build the desired diagnostics target, then run its test from the Testing view.
+The `PSOLADiagnostics` CTest target checks pitch shifting on the included 220 Hz, 440 Hz, and 880 Hz sine WAV files, along with overlap-add coverage on a constant signal. `PitchAnalysisDiagnostics` checks pitch detection across the frames of the 220 Hz and 880 Hz WAV files, verifies scale-target selection from measured pitch, checks C#4-to-C4 correction and transparent pass-through, verifies Flex Tune behavior for small, transitional, and large pitch deviations, exercises frame stabilization, and diagnoses phase alignment on a steady sine and a changing-pitch signal with a short gap. In VS Code, configure the project with CMake Tools, build the desired diagnostics target, then run its test from the Testing view.
 
 To render a mono vocal twice with identical pitch analysis and correction settings, once with phase alignment and once without it, run from the repository root:
 

@@ -254,7 +254,9 @@ MainComponent::MainComponent()
     configureRotary(flexTuneSlider, juce::Colour(0xff27d6a5));
     flexTuneSlider.setRange(0.0, 100.0, 1.0);
     flexTuneSlider.setValue(50.0);
-    flexTuneSlider.setEnabled(false);
+    flexTuneSlider.setTooltip(
+        "0%: full correction. At 100%, corrections fade in between 30 and 60 cents.");
+    flexTuneSlider.onValueChange = [this] { updateFlexTuneValue(); };
 
     configureRotary(naturalVibratoSlider, juce::Colour(0xff9278ff));
     naturalVibratoSlider.setRange(0.0, 100.0, 1.0);
@@ -267,7 +269,7 @@ MainComponent::MainComponent()
     humanizeSlider.setEnabled(false);
 
     updateRetuneSpeedValue();
-    flexTuneValueLabel.setText("50%  |  WIP", juce::dontSendNotification);
+    updateFlexTuneValue();
     naturalVibratoValueLabel.setText(
         "30%  |  WIP",
         juce::dontSendNotification);
@@ -657,6 +659,8 @@ void MainComponent::startProcessing()
         : ScaleType::Major;
     const float retuneSpeed =
         static_cast<float>(retuneSpeedSlider.getValue() / 100.0);
+    const float flexTune =
+        static_cast<float>(flexTuneSlider.getValue() / 100.0);
     auto safeThis = juce::Component::SafePointer<MainComponent>(this);
 
     setProcessingState(true);
@@ -674,7 +678,8 @@ void MainComponent::startProcessing()
          outputName,
          rootMidi,
          scaleType,
-         retuneSpeed]
+         retuneSpeed,
+         flexTune]
         {
             bool succeeded = false;
             juce::String message;
@@ -697,7 +702,10 @@ void MainComponent::startProcessing()
                         512,
                         50.0f,
                         1000.0f,
-                        retuneSpeed);
+                        retuneSpeed,
+                        true,
+                        true,
+                        flexTune);
 
                 if (correction.samples.size() != reader.getSamples().size() ||
                     correction.frameAnalysis.empty() ||
@@ -737,6 +745,7 @@ void MainComponent::setProcessingState(bool isProcessing)
     rootNoteBox.setEnabled(!processing);
     scaleTypeBox.setEnabled(!processing);
     retuneSpeedSlider.setEnabled(!processing);
+    flexTuneSlider.setEnabled(!processing);
     processButton.setButtonText(
         processing ? "Processing..." : "Process and export");
     updateProcessButton();
@@ -770,5 +779,12 @@ void MainComponent::updateRetuneSpeedValue()
     retuneSpeedValueLabel.setText(
         juce::String(
             static_cast<int>(retuneSpeedSlider.getValue())) + "%",
+        juce::dontSendNotification);
+}
+
+void MainComponent::updateFlexTuneValue()
+{
+    flexTuneValueLabel.setText(
+        juce::String(static_cast<int>(flexTuneSlider.getValue())) + "%",
         juce::dontSendNotification);
 }

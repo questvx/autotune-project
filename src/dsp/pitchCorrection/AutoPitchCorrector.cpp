@@ -17,6 +17,33 @@
 namespace
 {
 constexpr float minimumEffectiveCorrectionCents = 5.0f;
+constexpr float maximumFlexTuneDeadZoneCents = 30.0f;
+constexpr float maximumFlexTuneTransitionCents = 30.0f;
+
+float applyFlexTune(float correctionCents, float flexTune)
+{
+    if (flexTune <= 0.0f)
+        return correctionCents;
+
+    const float deadZoneCents =
+        maximumFlexTuneDeadZoneCents * flexTune;
+    const float transitionCents =
+        maximumFlexTuneTransitionCents * flexTune;
+    const float correctionMagnitude = std::abs(correctionCents);
+
+    if (correctionMagnitude <= deadZoneCents)
+        return 0.0f;
+
+    if (correctionMagnitude >= deadZoneCents + transitionCents)
+        return correctionCents;
+
+    const float transitionPosition =
+        (correctionMagnitude - deadZoneCents) / transitionCents;
+    const float correctionWeight =
+        transitionPosition * transitionPosition *
+        (3.0f - 2.0f * transitionPosition);
+    return correctionCents * correctionWeight;
+}
 
 struct PhaseAlignmentResult
 {
@@ -135,7 +162,8 @@ AutoPitchCorrectionResult AutoPitchCorrector::process(
     float maxFrequency,
     float retuneSpeed,
     bool phaseAlignmentEnabled,
-    bool phaseContinuityEnabled)
+    bool phaseContinuityEnabled,
+    float flexTune)
 {
     AutoPitchCorrectionResult result;
     if (samples.empty() ||
@@ -150,7 +178,10 @@ AutoPitchCorrectionResult AutoPitchCorrector::process(
         maxFrequency <= minFrequency ||
         !std::isfinite(retuneSpeed) ||
         retuneSpeed <= 0.0f ||
-        retuneSpeed > 1.0f)
+        retuneSpeed > 1.0f ||
+        !std::isfinite(flexTune) ||
+        flexTune < 0.0f ||
+        flexTune > 1.0f)
     {
         return result;
     }
@@ -207,7 +238,8 @@ AutoPitchCorrectionResult AutoPitchCorrector::process(
             : 0.0f;
         diagnostics.requestedCorrectionCents = targetCorrection;
         const float smoothedCorrection =
-            correctionSmoother.process(targetCorrection);
+            correctionSmoother.process(
+                applyFlexTune(targetCorrection, flexTune));
         diagnostics.smoothedCorrectionCents = smoothedCorrection;
 
         const float ratio = std::pow(
