@@ -14,6 +14,7 @@
 #include <filesystem>
 #include <iostream>
 #include <limits>
+#include <sstream>
 #include <string>
 #include <system_error>
 #include <vector>
@@ -96,6 +97,39 @@ bool checkSineFrames(
               << failures << " pitch errors"
               << (failures == 0 ? " PASS" : " FAIL") << '\n';
     return failures == 0;
+}
+
+bool checkHarmonicRichToneKeepsFundamental()
+{
+    constexpr float fundamentalFrequency = 146.83f;
+    constexpr float fundamentalAmplitude = 0.2f;
+    constexpr float secondHarmonicAmplitude = 0.6f;
+    AudioFrame frame;
+    frame.frameSamples.resize(2048);
+    for (size_t i = 0; i < frame.frameSamples.size(); ++i)
+    {
+        const float time = static_cast<float>(i) / expectedSampleRate;
+        frame.frameSamples[i] =
+            fundamentalAmplitude * std::sin(
+                2.0f * pi * fundamentalFrequency * time) +
+            secondHarmonicAmplitude * std::sin(
+                4.0f * pi * fundamentalFrequency * time);
+    }
+
+    PitchDetector detector;
+    const PitchResult result = detector.detectPitch(
+        frame,
+        expectedSampleRate,
+        50.0f,
+        1000.0f);
+    const bool passed =
+        std::abs(result.frequency - fundamentalFrequency) <= 2.0f &&
+        result.correlation >= 0.9f;
+    std::cout << "Harmonic-rich 146.83 Hz tone: "
+              << (passed ? "PASS" : "FAIL")
+              << ", detected=" << result.frequency
+              << " Hz, correlation=" << result.correlation << '\n';
+    return passed;
 }
 
 bool checkCMajorANotes()
@@ -771,6 +805,280 @@ bool comparePhaseAlignmentOnInput(
     return samePitchDecisions;
 }
 
+struct PitchComparisonAudio
+{
+    unsigned int sampleRate = 0;
+    std::vector<float> samples;
+};
+
+bool loadPitchComparisonAudio(
+    const std::filesystem::path& path,
+    PitchComparisonAudio& audio)
+{
+    const std::string pathString = path.string();
+    drwav wav{};
+    if (!drwav_init_file(&wav, pathString.c_str(), nullptr))
+    {
+        std::cerr << "Could not load WAV file " << path << '\n';
+        return false;
+    }
+
+    if (wav.channels == 0 ||
+        wav.totalPCMFrameCount >
+            std::numeric_limits<size_t>::max() / wav.channels)
+    {
+        std::cerr << "Unsupported WAV dimensions in " << path << '\n';
+        drwav_uninit(&wav);
+        return false;
+    }
+
+    const size_t frameCount =
+        static_cast<size_t>(wav.totalPCMFrameCount);
+    const size_t channelCount = wav.channels;
+    std::vector<float> interleaved(frameCount * channelCount);
+    const drwav_uint64 framesRead = drwav_read_pcm_frames_f32(
+        &wav,
+        wav.totalPCMFrameCount,
+        interleaved.data());
+    audio.sampleRate = wav.sampleRate;
+    drwav_uninit(&wav);
+    if (framesRead != frameCount)
+    {
+        std::cerr << "Could not read all samples from " << path << '\n';
+        return false;
+    }
+
+    audio.samples.resize(frameCount);
+    for (size_t frame = 0; frame < frameCount; ++frame)
+    {
+        double sum = 0.0;
+        for (size_t channel = 0; channel < channelCount; ++channel)
+            sum += interleaved[frame * channelCount + channel];
+        audio.samples[frame] =
+            static_cast<float>(sum / static_cast<double>(channelCount));
+    }
+    return audio.sampleRate > 0;
+}
+
+std::vector<PitchResult> measurePitchTrack(
+    const std::vector<float>& samples,
+    const std::vector<size_t>& frameStarts,
+    float sampleRate)
+{
+    constexpr size_t frameSize = 2048;
+    PitchDetector detector;
+    AudioFrame frame;
+    frame.frameSamples.resize(frameSize);
+    std::vector<PitchResult> pitchTrack;
+
+    for (size_t start : frameStarts)
+    {
+        std::copy_n(
+            samples.begin() + static_cast<std::ptrdiff_t>(start),
+            frameSize,
+            frame.frameSamples.begin());
+        pitchTrack.push_back(detector.detectPitch(
+            frame,
+            sampleRate,
+            50.0f,
+            1000.0f));
+    }
+    return pitchTrack;
+}
+
+bool compareF0AcrossRenders(
+    const std::filesystem::path& inputPath,
+    const std::filesystem::path& ourRenderPath,
+    const std::filesystem::path& antaresRenderPath,
+    double antaresTimeScale,
+    double antaresOffsetSeconds,
+    double sourceStartSeconds,
+    double sourceEndSeconds,
+    size_t analysisHop)
+{
+    PitchComparisonAudio input;
+    PitchComparisonAudio ourRender;
+    PitchComparisonAudio antaresRender;
+    if (!loadPitchComparisonAudio(inputPath, input) ||
+        !loadPitchComparisonAudio(ourRenderPath, ourRender) ||
+        !loadPitchComparisonAudio(antaresRenderPath, antaresRender))
+    {
+        return false;
+    }
+    if (input.sampleRate != ourRender.sampleRate ||
+        input.sampleRate != antaresRender.sampleRate ||
+        !std::isfinite(antaresTimeScale) ||
+        antaresTimeScale <= 0.0 ||
+        !std::isfinite(antaresOffsetSeconds) ||
+        antaresOffsetSeconds < 0.0 ||
+        !std::isfinite(sourceStartSeconds) ||
+        sourceStartSeconds < 0.0 ||
+        (sourceEndSeconds >= 0.0 &&
+         (!std::isfinite(sourceEndSeconds) ||
+          sourceEndSeconds <= sourceStartSeconds)) ||
+        analysisHop == 0)
+    {
+        std::cerr << "Invalid sample rates or Antares time mapping\n";
+        return false;
+    }
+
+    const double sampleRate = static_cast<double>(input.sampleRate);
+    const double antaresOffsetSamples = antaresOffsetSeconds * sampleRate;
+    if (antaresOffsetSamples >= antaresRender.samples.size())
+    {
+        std::cerr << "Antares offset is outside the render\n";
+        return false;
+    }
+
+    const size_t mappedAntaresSampleCount = static_cast<size_t>(
+        (antaresRender.samples.size() - antaresOffsetSamples) /
+        antaresTimeScale);
+    const size_t commonSampleCount = std::min(
+        input.samples.size(),
+        std::min(ourRender.samples.size(), mappedAntaresSampleCount));
+    if (commonSampleCount < 2048)
+    {
+        std::cerr << "WAV files have no usable common audio region\n";
+        return false;
+    }
+
+    constexpr size_t frameSize = 2048;
+    std::vector<size_t> sourceFrameStarts;
+    std::vector<size_t> antaresFrameStarts;
+    const size_t sourceStartSample = static_cast<size_t>(
+        sourceStartSeconds * sampleRate);
+    const size_t sourceEndSample = sourceEndSeconds >= 0.0
+        ? std::min(
+              commonSampleCount,
+              static_cast<size_t>(sourceEndSeconds * sampleRate))
+        : commonSampleCount;
+    if (sourceStartSample >= sourceEndSample)
+    {
+        std::cerr << "Requested source time range is outside the common audio\n";
+        return false;
+    }
+
+    for (size_t sourceStart = sourceStartSample;
+         sourceStart + frameSize <= commonSampleCount;
+         sourceStart += analysisHop)
+    {
+        if (sourceStart >= sourceEndSample)
+            break;
+        const size_t antaresStart = static_cast<size_t>(std::llround(
+            antaresOffsetSamples + antaresTimeScale * sourceStart));
+        if (antaresStart + frameSize > antaresRender.samples.size())
+            break;
+        sourceFrameStarts.push_back(sourceStart);
+        antaresFrameStarts.push_back(antaresStart);
+    }
+
+    std::ostringstream detectorMessages;
+    std::streambuf* previousOutput = std::cout.rdbuf(
+        detectorMessages.rdbuf());
+    const float detectorSampleRate = static_cast<float>(input.sampleRate);
+    const std::vector<PitchResult> inputTrack = measurePitchTrack(
+        input.samples, sourceFrameStarts, detectorSampleRate);
+    const std::vector<PitchResult> ourTrack = measurePitchTrack(
+        ourRender.samples, sourceFrameStarts, detectorSampleRate);
+    const std::vector<PitchResult> antaresTrack = measurePitchTrack(
+        antaresRender.samples, antaresFrameStarts, detectorSampleRate);
+    std::cout.rdbuf(previousOutput);
+
+    const size_t trackFrameCount = std::min(
+        inputTrack.size(),
+        std::min(ourTrack.size(), antaresTrack.size()));
+    std::vector<double> signedCentsDifferences;
+    size_t voicedComparisons = 0;
+    size_t ourRenderOneOctaveHigher = 0;
+    size_t ourRenderOneOctaveLower = 0;
+    size_t printedOctaveExamples = 0;
+
+    for (size_t frame = 0; frame < trackFrameCount; ++frame)
+    {
+        const PitchResult& inputPitch = inputTrack[frame];
+        const PitchResult& ourPitch = ourTrack[frame];
+        const PitchResult& antaresPitch = antaresTrack[frame];
+        if (inputPitch.frequency <= 0.0f ||
+            ourPitch.frequency <= 0.0f ||
+            antaresPitch.frequency <= 0.0f)
+        {
+            continue;
+        }
+
+        ++voicedComparisons;
+        const double centsDifference = 1200.0 * std::log2(
+            ourPitch.frequency / antaresPitch.frequency);
+        signedCentsDifferences.push_back(centsDifference);
+
+        const double time = static_cast<double>(sourceFrameStarts[frame]) /
+            detectorSampleRate;
+        if (std::abs(centsDifference - 1200.0) <= 100.0)
+        {
+            ++ourRenderOneOctaveHigher;
+            if (printedOctaveExamples < 12)
+            {
+                std::cout << "Our render about one octave higher at "
+                          << time << " s: input=" << inputPitch.frequency
+                          << " Hz (corr " << inputPitch.correlation << ')'
+                          << ", ours=" << ourPitch.frequency
+                          << " Hz (corr " << ourPitch.correlation
+                          << "), Antares=" << antaresPitch.frequency
+                          << " Hz (corr " << antaresPitch.correlation
+                          << ")\n";
+                ++printedOctaveExamples;
+            }
+        }
+        else if (std::abs(centsDifference + 1200.0) <= 100.0)
+        {
+            ++ourRenderOneOctaveLower;
+            if (printedOctaveExamples < 12)
+            {
+                std::cout << "Our render about one octave lower at "
+                          << time << " s: input=" << inputPitch.frequency
+                          << " Hz (corr " << inputPitch.correlation << ')'
+                          << ", ours=" << ourPitch.frequency
+                          << " Hz (corr " << ourPitch.correlation
+                          << "), Antares=" << antaresPitch.frequency
+                          << " Hz (corr " << antaresPitch.correlation
+                          << ")\n";
+                ++printedOctaveExamples;
+            }
+        }
+    }
+
+    std::sort(
+        signedCentsDifferences.begin(),
+        signedCentsDifferences.end());
+    const double inputDuration =
+        static_cast<double>(input.samples.size()) / sampleRate;
+    const double ourDuration =
+        static_cast<double>(ourRender.samples.size()) / sampleRate;
+    const double antaresDuration =
+        static_cast<double>(antaresRender.samples.size()) / sampleRate;
+    std::cout << "F0 comparison at 2048-sample windows every "
+              << analysisHop << " samples\n"
+              << "Durations (input/ours/Antares): "
+              << inputDuration << '/' << ourDuration << '/'
+              << antaresDuration << " s; Antares time mapping: "
+              << antaresOffsetSeconds << " + "
+              << antaresTimeScale
+              << " * source time; compared source region="
+              << static_cast<double>(sourceStartSample) /
+                     detectorSampleRate
+              << '-' << static_cast<double>(sourceEndSample) /
+                            detectorSampleRate
+              << " s\n"
+              << "Stereo renders downmixed by channel average\n"
+              << "Frames voiced in all three=" << voicedComparisons
+              << ", our render about one octave higher/lower than Antares="
+              << ourRenderOneOctaveHigher << '/'
+              << ourRenderOneOctaveLower
+              << ", median signed F0 difference="
+              << percentile(signedCentsDifferences, 0.50)
+              << " cents\n";
+    return voicedComparisons > 0;
+}
+
 bool checkUnvoicedPassThrough()
 {
     const std::vector<float> input(
@@ -1019,9 +1327,33 @@ bool checkPitchFrameStabilizer()
 
 int main(int argc, char** argv)
 {
+    if ((argc == 7 || argc == 10) &&
+        std::string(argv[1]) == "--compare-f0")
+    {
+        const double sourceStartSeconds = argc == 10
+            ? std::stod(argv[7])
+            : 0.0;
+        const double sourceEndSeconds = argc == 10
+            ? std::stod(argv[8])
+            : -1.0;
+        const size_t analysisHop = argc == 10
+            ? static_cast<size_t>(std::stoull(argv[9]))
+            : 4096;
+        return compareF0AcrossRenders(
+            argv[2],
+            argv[3],
+            argv[4],
+            std::stod(argv[5]),
+            std::stod(argv[6]),
+            sourceStartSeconds,
+            sourceEndSeconds,
+            analysisHop) ? 0 : 1;
+    }
+
     bool passed = true;
     passed = checkSineFrames("assets/sine_220.wav", 220.0f) && passed;
     passed = checkSineFrames("assets/sine_880.wav", 880.0f) && passed;
+    passed = checkHarmonicRichToneKeepsFundamental() && passed;
     passed = checkCMajorANotes() && passed;
     passed = checkTargetSelectionUsesMeasuredPitch() && passed;
     passed = checkAutomaticCorrection() && passed;
