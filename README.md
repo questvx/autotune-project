@@ -24,21 +24,25 @@ The project demonstrates practical digital signal processing (DSP), audio data h
 
 ## Requirements
 
-- CMake 3.20 or later.
+- CMake 3.22 or later.
 - A C++ compiler with C++20 support.
-- The example audio file `assets/guitar_h.wav` (included in the repository).
+- An input mono WAV file for processing.
 
 ## Build and run
 
-Run these commands in PowerShell from the project root. The following example uses the Visual Studio 2022 generator:
+The JUCE standalone interface is built with CMake. The first configure downloads the pinned JUCE 8.0.14 source with `FetchContent`, so it requires an internet connection.
 
 ```powershell
 cmake -S . -B build
-cmake --build build --config Debug
-.\build\Debug\AutoTuneEngineering.exe
+cmake --build build --config Debug --target AutoTuneStandalone
+.\build\AutoTuneStandalone_artefacts\Debug\AutoTune.exe
 ```
 
-The application locates the input file `assets/guitar_h.wav` relative to the executable. Run it from the repository root to place the generated `output.wav` there. For a Release build, use `--config Release` and run `.\build\Release\AutoTuneEngineering.exe`.
+The standalone interface uses a compact tuner-style layout. It lets you choose an input WAV and output path, set the root note and major/minor scale, and adjust retune speed. A waveform preview is shown for the selected audio. Processing runs in the background, and the current reader supports mono WAV files only.
+
+Flex Tune, Natural Vibrato, Humanize, Input Type, Transpose, and Low Latency are shown as work in progress. They are disabled and do not affect the rendered audio yet.
+
+The original `AutoTuneEngineering` command-line target remains available. Its input path and settings are configured in `src/main.cpp`.
 
 ## Tests
 
