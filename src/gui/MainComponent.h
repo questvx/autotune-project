@@ -38,6 +38,7 @@ private:
     void finishProcessing(bool succeeded, const juce::String& message);
     void updateProcessButton();
     void updateRetuneSpeedValue();
+    void updateFlexTuneValue();
 
     juce::Label titleLabel;
     juce::Label subtitleLabel;
