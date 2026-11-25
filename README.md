@@ -38,7 +38,9 @@ cmake --build build --config Debug --target AutoTuneStandalone
 .\build\AutoTuneStandalone_artefacts\Debug\AutoTune.exe
 ```
 
-The standalone app lets you choose an input WAV, output path, root note, major/minor scale, and retune speed. Processing runs in the background so the interface remains responsive. The current reader supports mono WAV files only.
+The standalone interface uses a compact tuner-style layout. It lets you choose an input WAV and output path, set the root note and major/minor scale, and adjust retune speed. A waveform preview and pitch summary are shown for the selected audio. Processing runs in the background, and the current reader supports mono WAV files only.
+
+Flex Tune, Natural Vibrato, Humanize, Input Type, Transpose, and Low Latency are shown as work in progress. They are disabled and do not affect the rendered audio yet.
 
 The original `AutoTuneEngineering` command-line target remains available. Its input path and settings are configured in `src/main.cpp`.
 
