@@ -261,7 +261,10 @@ MainComponent::MainComponent()
     configureRotary(naturalVibratoSlider, juce::Colour(0xff9278ff));
     naturalVibratoSlider.setRange(0.0, 100.0, 1.0);
     naturalVibratoSlider.setValue(30.0);
-    naturalVibratoSlider.setEnabled(false);
+    naturalVibratoSlider.setTooltip(
+        "0%: flatten natural vibrato. 100%: preserve input vibrato.");
+    naturalVibratoSlider.onValueChange =
+        [this] { updateNaturalVibratoValue(); };
 
     configureRotary(humanizeSlider, juce::Colour(0xffffbd48));
     humanizeSlider.setRange(0.0, 100.0, 1.0);
@@ -270,9 +273,7 @@ MainComponent::MainComponent()
 
     updateRetuneSpeedValue();
     updateFlexTuneValue();
-    naturalVibratoValueLabel.setText(
-        "30%  |  WIP",
-        juce::dontSendNotification);
+    updateNaturalVibratoValue();
     humanizeValueLabel.setText("20%  |  WIP", juce::dontSendNotification);
     for (juce::Label* valueLabel :
          {&retuneSpeedValueLabel, &flexTuneValueLabel,
@@ -661,6 +662,8 @@ void MainComponent::startProcessing()
         static_cast<float>(retuneSpeedSlider.getValue() / 100.0);
     const float flexTune =
         static_cast<float>(flexTuneSlider.getValue() / 100.0);
+    const float naturalVibrato =
+        static_cast<float>(naturalVibratoSlider.getValue() / 100.0);
     auto safeThis = juce::Component::SafePointer<MainComponent>(this);
 
     setProcessingState(true);
@@ -679,7 +682,8 @@ void MainComponent::startProcessing()
          rootMidi,
          scaleType,
          retuneSpeed,
-         flexTune]
+         flexTune,
+         naturalVibrato]
         {
             bool succeeded = false;
             juce::String message;
@@ -705,7 +709,8 @@ void MainComponent::startProcessing()
                         retuneSpeed,
                         true,
                         true,
-                        flexTune);
+                        flexTune,
+                        naturalVibrato);
 
                 if (correction.samples.size() != reader.getSamples().size() ||
                     correction.frameAnalysis.empty() ||
@@ -746,6 +751,7 @@ void MainComponent::setProcessingState(bool isProcessing)
     scaleTypeBox.setEnabled(!processing);
     retuneSpeedSlider.setEnabled(!processing);
     flexTuneSlider.setEnabled(!processing);
+    naturalVibratoSlider.setEnabled(!processing);
     processButton.setButtonText(
         processing ? "Processing..." : "Process and export");
     updateProcessButton();
@@ -786,5 +792,13 @@ void MainComponent::updateFlexTuneValue()
 {
     flexTuneValueLabel.setText(
         juce::String(static_cast<int>(flexTuneSlider.getValue())) + "%",
+        juce::dontSendNotification);
+}
+
+void MainComponent::updateNaturalVibratoValue()
+{
+    naturalVibratoValueLabel.setText(
+        juce::String(
+            static_cast<int>(naturalVibratoSlider.getValue())) + "%",
         juce::dontSendNotification);
 }
