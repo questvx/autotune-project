@@ -1,0 +1,227 @@
+NOTATKI DO PRACY INŻYNIERSKIEJ
+Problemy i poprawki w prototypie AutoTune
+
+Cel prac
+-------
+Projekt jest prototypem offline do analizy wysokości dźwięku i korekcji
+intonacji. Prace koncentrowały się na sprawdzeniu algorytmu PSOLA,
+poprawieniu analizy nut oraz połączeniu analizy z automatyczną korekcją.
+Do testów użyto sygnałów sinusoidalnych o znanych częstotliwościach,
+co pozwoliło porównywać wynik programu z oczekiwanym wynikiem.
+
+1. Niepoprawne dzialanie PSOLA
+------------------------------
+Problem:
+Początkowa wersja PSOLA nie przesuwała poprawnie wysokości dla wszystkich
+testowanych częstotliwości. Samo rozmieszczanie ziaren nie zapewniało
+stabilnej zmiany tonu, a miejsca nakładania mogły powodować spadki poziomu
+sygnału.
+
+Poprawka:
+Ziarna sygnału są przeskalowywane do okresu syntezy wynikającego z zadanej
+zmiany wysokości. Do łączenia ziaren wykorzystano okno Hann oraz
+normalizację sumy nakładających się okien. Dodano też zabezpieczenie
+przed położeniem znacznika okresu poza zakresem próbek.
+
+Weryfikacja:
+Test PSOLADiagnostics sprawdza zachowanie dla sinusów 220, 440 i 880 Hz,
+zarówno bez zmiany tonu, jak i przy przesunięciach o oktawę. Sprawdza
+również, czy nakładanie ziaren nie powoduje nieakceptowalnych ubytków
+poziomu sygnału.
+
+2. Wykrywanie niewlasciwego okresu podstawowego
+------------------------------------------------
+Problem:
+Autokorelacja potrafiła wybrać późniejszy lokalny szczyt zamiast
+najwcześniejszego wiarygodnego maksimum. Mogło to prowadzić do wykrycia
+wielokrotności okresu podstawowego, a w konsekwencji do błędnej
+częstotliwości, np. zbliżonej do 97,8 Hz dla tonu 880 Hz.
+
+Poprawka:
+Detektor wybiera pierwsze lokalne maksimum autokorelacji spełniające
+warunek akceptacji. Ogranicza to ryzyko wyboru podharmonicznej.
+
+Weryfikacja:
+PitchAnalysisDiagnostics analizuje wszystkie ramki plikow sinusoidalnych
+220 Hz i 880 Hz i porownuje wykryta czestotliwosc z wartoscia oczekiwana.
+
+3. Przypisywanie nut do skali
+-----------------------------
+Problem:
+Sprawdzanie, czy nuta należy do skali, nieprawidłowo uwzględniało
+oktawy i resztę z dzielenia dla ujemnych wartości. W efekcie ta sama klasa
+wysokości mogła być rozpoznawana inaczej w różnych oktawach; przykładem
+było błędne odrzucanie nuty A w skali C-dur.
+
+Poprawka:
+Numer MIDI i dźwięk podstawowy skali są najpierw normalizowane do zakresu
+klas wysokości od 0 do 11. Dopiero potem porównywany jest stopień skali.
+
+Weryfikacja:
+Test sprawdza nuty A o numerach MIDI 45, 57 i 69 w skali C-dur.
+
+4. Nadmiarowe ramki na koncu nagrania
+-------------------------------------
+Problem:
+Generator ramek tworzył niepotrzebne krótkie ramki na końcu pliku.
+Utrudniało to interpretację liczby ramek oraz informacji o dopełnieniu
+zerami.
+
+Poprawka:
+Skorygowano obliczanie liczby ramek tak, aby powstawała tylko ramka
+potrzebna do obsłużenia pozostałej części sygnału. Informacja o
+dopełnieniu jest wyliczana na podstawie rzeczywistej długości ostatniej
+ramki.
+
+5. Polaczenie analizy i automatycznej korekcji
+----------------------------------------------
+Problem:
+Wcześniej analiza nut i demonstracja PSOLA były oddzielnymi ścieżkami.
+Docelowa wysokość nie była wyznaczana automatycznie z wyniku analizy.
+
+Poprawka:
+Dodano AutoPitchCorrector, który dla kolejnych ramek:
+- wykrywa wysokość i wybiera dozwoloną nutę w zadanej skali,
+- oblicza odchylenie w centach,
+- wygładza wielkość korekcji za pomocą modułu RetuneSpeed,
+- przelicza korekcję na współczynnik zmiany tonu i uruchamia PSOLA,
+- składa wynikowe ramki z normalizacją okna Hann.
+
+Podczas testu C#4 pozostawał w wyniku blisko 277 Hz mimo tego, że analiza
+poprawnie wybierała C4 jako cel. Jednorazowe przetworzenie całego tonu
+przez PSOLA dawało wynik bliski 262 Hz, co wskazało na problem w łączeniu
+osobno przetwarzanych ramek: ich fazy nie były zgodne. Dodano dopasowanie
+fazy ramki do już złożonego fragmentu sygnału w obszarze nakładania.
+Po poprawce diagnostyka automatycznej korekcji C#4 do C4 przechodzi.
+
+Konfiguracja przykładu w main.cpp:
+- skala: C-dur,
+- rozmiar ramki: 2048 probek,
+- krok ramki: 512 probek,
+- zakres detekcji: 50-1000 Hz,
+- szybkosc wygladzania korekcji: 0,2,
+- plik wejsciowy: assets/szklanki.wav,
+- plik wynikowy: output.wav.
+
+Zakres weryfikacji i ograniczenia
+--------------------------------
+Po poprawkach budowanie projektu kończy się powodzeniem. Przechodzą testy
+PSOLADiagnostics i PitchAnalysisDiagnostics. Testy obejmują znane sinusy,
+wybrane przesunięcia oktawowe, przynależność nut A do C-dur oraz
+automatyczną korekcję C#4 do C4.
+
+Testy syntetyczne potwierdzają działanie wybranych elementów DSP, ale nie
+potwierdzają jeszcze jakości brzmienia na wokalu ani zachowania przy
+szybko zmieniającej się wysokości. Program jest przetwarzaniem offline;
+nie jest to jeszcze system czasu rzeczywistego. Kolejne etapy powinny
+obejmować odsłuch próbek wokalnych, testy przebiegów o zmiennej wysokości
+oraz ocenę artefaktów na przejściach między nutami.
+
+6. Obserwacje dopasowania fazy na wokalu
+----------------------------------------
+Data pomiaru: 2026-11-24
+
+Cel:
+Sprawdzić, czy dopasowanie fazy może przyczyniać się do słyszalnego
+falowania lub bulgotania głosu, niezależnie od zmian wykrytego F0
+i wybranego celu nutowego.
+
+Warunki pomiaru:
+Uruchomiono aktualny build aplikacji na pliku rainbow2.wav w osobnym
+katalogu tymczasowym, bez nadpisywania plików wynikowych w projekcie.
+Build zakończył działanie kodem 0 i utworzył plik output_3.wav.
+Użyte ustawienia z main.cpp: 44,1 kHz, ramka 2048 próbek, krok 512 próbek,
+zakres 50-1000 Hz, C-dur i retuneSpeed = 0,05.
+W logu znaleziono 2429 ramek, z czego w 1754 ramkach PSOLA było aktywne.
+
+Wyniki:
+Porównano 1337 sąsiednich par ramek, w których PSOLA było aktywne, stabilny
+cel MIDI był taki sam, a zmiana F0 i ratio pozostawała poniżej 25 centów.
+Zmiana phaseShiftSamples po uwzględnieniu zawijania o okres docelowej nuty
+miała medianę 18 próbek, 90. percentyl 47 próbek, 99. percentyl 84 próbki,
+a maksimum 111 próbek. Przy 44,1 kHz odpowiada to odpowiednio około
+0,41 ms, 1,07 ms, 1,90 ms i 2,52 ms.
+
+Przykład z logu:
+Między 2,519 s a 2,531 s F0 wynosiło około 103,2 Hz w obu ramkach,
+cel pozostawał MIDI 43, a ratio wynosiło 0,961. Przesunięcie fazy zmieniło
+się z -190 do +151 próbek. Okres celu wynosił około 450 próbek, więc po
+odjęciu pełnego okresu zmiana nadal wynosi około 109 próbek. To wskazuje,
+że przesunięcie potrafi zmienić się znacząco nawet przy prawie stałym F0,
+celu i ratio.
+
+Interpretacja i ograniczenia:
+Wynik jest zgodny z hipotezą, że niezależne wybieranie przesunięcia dla
+każdej ramki może dodawać niestabilność fazową i zmiany barwy. Nie dowodzi
+jednak, że to jedyna przyczyna słyszalnego efektu. Wartości bliskie
+przeciwnym końcom zakresu, np. +225 i -225 próbek dla celu około 98 Hz,
+mogą oznaczać prawie ten sam punkt fazy, bo okres wynosi około 450 próbek.
+Dlatego surowej różnicy przesunięć nie należy interpretować bez
+uwzględnienia okresu.
+
+Obecna metoda znajduje przesunięcie o największej znormalizowanej
+korelacji między przetworzoną ramką a już złożonym wyjściem. Każda ramka
+jest optymalizowana niezależnie; wynik nie jest ograniczany przez
+przesunięcie poprzedniej ramki. Zakres poszukiwania może wynosić do połowy
+okresu docelowego pitchu. Ponadto wybrane przesunięcie cykliczne jest
+stosowane do całej ramki, mimo że korelacja liczona jest tylko na obszarze,
+w którym istnieje wcześniejsze nakładane wyjście. To może zmieniać również
+fragment ramki poza obszarem użytym do oceny dopasowania.
+
+Wykonane testy diagnostyczne:
+1. Do diagnostyki ramki dodano znormalizowaną korelację najlepszego
+   przesunięcia, limit przeszukiwania, flagę osiągnięcia granicy oraz
+   informację, czy dopasowanie było możliwe. Parametr
+   phaseAlignmentEnabled pozwala porównać oba warianty; domyślnie
+   dopasowanie pozostaje włączone.
+2. Na stałym sinusie C#4 (277,18 Hz) z korekcją do C4 (261,63 Hz)
+   dopasowanie było ważne w 169 ramkach, średnia korelacja wyniosła
+   0,9928, a granica zakresu została osiągnięta 5 razy. Po odwinięciu
+   zmiany przesunięcia modulo okresu mediana zmiany ze znakiem wyniosła
+   -30 próbek; 90. percentyl wartości bezwzględnej to 47 próbek,
+   99. percentyl i maksimum to 62 próbki. Różnica F0 wejścia i celu
+   przewiduje naturalny dryf fazy około -30 próbek na krok 512 próbek;
+   90. percentyl reszty po odjęciu tego dryfu wyniósł 16,6 próbek.
+   Nie należy więc traktować całej zmiany przesunięcia jako jitteru
+   ani karać jej bez modelowania różnicy częstotliwości.
+3. Ten sam sinus wyrenderowano z alignerem i bez niego, przy tych samych
+   decyzjach nutowych i ratio. F0 wyjścia z alignerem wyniosło 261,67 Hz,
+   a bez alignera 277,22 Hz (czyli pozostało bliskie F0 wejściowemu).
+   RMS różnicy renderów wyniósł 0,4238. W tym kontrolowanym przypadku
+   dopasowanie fazy jest potrzebne, aby overlap-add zachował przesunięty
+   pitch.
+4. Dodano także przypadek zmiennego F0 z krótką ciszą. Potwierdza on
+   poprawność diagnostyki w warunkach innych niż stały sinus, bez
+   narzucania arbitralnego progu na zmianę fazy.
+5. Wykonano A/B na rainbow2.wav. Oba renderowania zachowały identyczne
+   decyzje pitch/target/ratio. W 1754 ramkach dopasowanie było ważne;
+   średnia korelacja wyniosła 0,9465, granica została osiągnięta 67 razy.
+   Mediana zmiany przesunięcia ze znakiem wyniosła -3 próbki, 90. percentyl
+   zmiany bezwzględnej 47 próbek, 99. percentyl 84 próbki, maksimum
+   114 próbek. 90. percentyl reszty względem prostego przewidywanego
+   dryfu wyniósł 49,0 próbek. RMS różnicy wokalnych renderów wyniósł
+   0,01458.
+
+Interpretacja i dalsze kroki:
+Porównanie izoluje działanie alignera, ponieważ analiza F0, cele i ratio
+były takie same w obu renderach. Wynik na sinusie pokazuje, że nie należy
+wyłączać alignera ani ograniczać przesunięcia tylko dlatego, że zmienia
+się ono między ramkami. Na wokalu zmierzone korelacje i reszty nie
+rozstrzygają, czy aligner odpowiada za słyszalne bulgotanie; potrzebne jest
+odsłuchanie plików A/B. Render z alignerem i bez niego znajduje się w
+build/phase-comparison jako rainbow2_phase_alignment_on.wav oraz
+rainbow2_phase_alignment_off.wav.
+
+Na tym etapie nie dodano stabilizacji fazy ani ograniczenia przesuwania do
+obszaru nakładania: dane nie uzasadniają jeszcze takiej zmiany, a prosta
+kara za zmianę przesunięcia mogłaby tłumić oczekiwany dryf wynikający z
+różnicy F0 i celu. Następnym krokiem jest odsłuchanie obu renderów i
+zapisanie, który brzmi lepiej oraz w których fragmentach. Dopiero wtedy
+warto rozważyć regularyzację z uwzględnieniem przewidywanego dryfu i
+ponownie porównać jakość oraz ciągłość.
+
+Uwaga o konfiguracji:
+Ustawienia wypisane w starszej sekcji konfiguracji przykładu są
+historyczne. Pomiar z 2026-11-24 używał ustawień wymienionych powyżej.
+Komunikat w main.cpp został poprawiony i jest zgodny z nazwą
+output_3.wav.
