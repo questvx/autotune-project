@@ -26,6 +26,49 @@ struct PhaseAlignmentResult
     bool valid = false;
 };
 
+float phaseCorrelationAtShift(
+    const std::vector<float>& frame,
+    const std::vector<float>& accumulatedSamples,
+    const std::vector<float>& windowSum,
+    size_t frameStart,
+    int maxShift,
+    int shift)
+{
+    double crossProduct = 0.0;
+    double frameEnergy = 0.0;
+    double accumulatedEnergy = 0.0;
+
+    for (size_t i = static_cast<size_t>(maxShift);
+         i + static_cast<size_t>(maxShift) < frame.size();
+         ++i)
+    {
+        const size_t outputIndex = frameStart + i;
+        if (outputIndex >= accumulatedSamples.size() ||
+            windowSum[outputIndex] <=
+                std::numeric_limits<float>::epsilon())
+        {
+            continue;
+        }
+
+        const size_t frameIndex = static_cast<size_t>(
+            (static_cast<long long>(i) + shift +
+             static_cast<long long>(frame.size())) %
+            static_cast<long long>(frame.size()));
+        const double frameSample = frame[frameIndex];
+        const double accumulatedSample =
+            accumulatedSamples[outputIndex] / windowSum[outputIndex];
+        crossProduct += frameSample * accumulatedSample;
+        frameEnergy += frameSample * frameSample;
+        accumulatedEnergy += accumulatedSample * accumulatedSample;
+    }
+
+    if (frameEnergy == 0.0 || accumulatedEnergy == 0.0)
+        return -std::numeric_limits<float>::infinity();
+
+    return static_cast<float>(
+        crossProduct / std::sqrt(frameEnergy * accumulatedEnergy));
+}
+
 PhaseAlignmentResult findPhaseAlignment(
     const std::vector<float>& frame,
     const std::vector<float>& accumulatedSamples,
@@ -54,39 +97,16 @@ PhaseAlignmentResult findPhaseAlignment(
     double bestCorrelation = -std::numeric_limits<double>::infinity();
     for (int shift = -maxShift; shift <= maxShift; ++shift)
     {
-        double crossProduct = 0.0;
-        double frameEnergy = 0.0;
-        double accumulatedEnergy = 0.0;
-
-        for (size_t i = static_cast<size_t>(maxShift);
-             i + static_cast<size_t>(maxShift) < frame.size();
-             ++i)
-        {
-            const size_t outputIndex = frameStart + i;
-            if (outputIndex >= accumulatedSamples.size() ||
-                windowSum[outputIndex] <=
-                    std::numeric_limits<float>::epsilon())
-            {
-                continue;
-            }
-
-            const size_t frameIndex = static_cast<size_t>(
-                (static_cast<long long>(i) + shift +
-                 static_cast<long long>(frame.size())) %
-                static_cast<long long>(frame.size()));
-            const double frameSample = frame[frameIndex];
-            const double accumulatedSample =
-                accumulatedSamples[outputIndex] / windowSum[outputIndex];
-            crossProduct += frameSample * accumulatedSample;
-            frameEnergy += frameSample * frameSample;
-            accumulatedEnergy += accumulatedSample * accumulatedSample;
-        }
-
-        if (frameEnergy == 0.0 || accumulatedEnergy == 0.0)
+        const float correlation = phaseCorrelationAtShift(
+            frame,
+            accumulatedSamples,
+            windowSum,
+            frameStart,
+            maxShift,
+            shift);
+        if (!std::isfinite(correlation))
             continue;
 
-        const double correlation = crossProduct /
-            std::sqrt(frameEnergy * accumulatedEnergy);
         if (correlation > bestCorrelation)
         {
             bestCorrelation = correlation;
@@ -114,7 +134,8 @@ AutoPitchCorrectionResult AutoPitchCorrector::process(
     float minFrequency,
     float maxFrequency,
     float retuneSpeed,
-    bool phaseAlignmentEnabled)
+    bool phaseAlignmentEnabled,
+    bool phaseContinuityEnabled)
 {
     AutoPitchCorrectionResult result;
     if (samples.empty() ||
@@ -161,6 +182,8 @@ AutoPitchCorrectionResult AutoPitchCorrector::process(
     result.frameDiagnostics.reserve(frames.size());
     std::vector<float> windowSum(samples.size(), 0.0f);
     RetuneSpeed correctionSmoother(retuneSpeed);
+    bool hasPreviousUnwrappedPhaseShift = false;
+    float previousUnwrappedPhaseShift = 0.0f;
 
     for (size_t frameIndex = 0; frameIndex < frames.size(); ++frameIndex)
     {
@@ -228,7 +251,7 @@ AutoPitchCorrectionResult AutoPitchCorrector::process(
         }
 
         const size_t frameStart = frameIndex * hopSize;
-        const PhaseAlignmentResult phaseAlignment =
+        PhaseAlignmentResult phaseAlignment =
             needsPitchShift && phaseAlignmentEnabled
             ? findPhaseAlignment(
                 correctedFrame,
@@ -238,6 +261,75 @@ AutoPitchCorrectionResult AutoPitchCorrector::process(
                 tracked.targetFrequency,
                 sampleRate)
             : PhaseAlignmentResult{};
+
+        if (phaseContinuityEnabled &&
+            needsPitchShift &&
+            phaseAlignmentEnabled &&
+            phaseAlignment.valid)
+        {
+            if (hasPreviousUnwrappedPhaseShift)
+            {
+                constexpr float lowCorrelation = 0.85f;
+                constexpr float fullCorrelation = 0.98f;
+                const float measuredWeight = std::max(
+                    0.0f,
+                    std::min(
+                        1.0f,
+                        (phaseAlignment.correlation - lowCorrelation) /
+                            (fullCorrelation - lowCorrelation)));
+                const float outputFrequency = tracked.frequency * ratio;
+                const float phasePeriod = sampleRate / outputFrequency;
+                const float expectedShift =
+                    previousUnwrappedPhaseShift +
+                    static_cast<float>(hopSize) *
+                        (1.0f - 1.0f / ratio);
+                const float measuredShift =
+                    static_cast<float>(phaseAlignment.shiftSamples) +
+                    std::round(
+                        (expectedShift -
+                         static_cast<float>(phaseAlignment.shiftSamples)) /
+                        phasePeriod) *
+                        phasePeriod;
+                const float regularizedShift =
+                    expectedShift +
+                    measuredWeight * (measuredShift - expectedShift);
+                const int periodSamples =
+                    static_cast<int>(std::round(phasePeriod));
+                int wrappedShift = static_cast<int>(std::round(
+                    regularizedShift -
+                    std::round(regularizedShift / phasePeriod) *
+                        phasePeriod));
+                while (wrappedShift > phaseAlignment.searchLimitSamples)
+                    wrappedShift -= periodSamples;
+                while (wrappedShift < -phaseAlignment.searchLimitSamples)
+                    wrappedShift += periodSamples;
+                phaseAlignment.shiftSamples = wrappedShift;
+                phaseAlignment.correlation = phaseCorrelationAtShift(
+                    correctedFrame,
+                    result.samples,
+                    windowSum,
+                    frameStart,
+                    phaseAlignment.searchLimitSamples,
+                    phaseAlignment.shiftSamples);
+                previousUnwrappedPhaseShift =
+                    static_cast<float>(phaseAlignment.shiftSamples) +
+                    std::round(
+                        (regularizedShift -
+                         static_cast<float>(phaseAlignment.shiftSamples)) /
+                        phasePeriod) *
+                        phasePeriod;
+            }
+            else
+            {
+                previousUnwrappedPhaseShift =
+                    static_cast<float>(phaseAlignment.shiftSamples);
+            }
+            hasPreviousUnwrappedPhaseShift = true;
+        }
+        else
+        {
+            hasPreviousUnwrappedPhaseShift = false;
+        }
 
         diagnostics.pitchShiftApplied = needsPitchShift;
         diagnostics.pitchRatio = needsPitchShift ? ratio : 1.0f;

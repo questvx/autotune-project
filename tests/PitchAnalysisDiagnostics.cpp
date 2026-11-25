@@ -467,7 +467,8 @@ bool checkPhaseAlignmentOnSteadyTone()
         50.0f,
         1000.0f,
         1.0f,
-        true);
+        true,
+        false);
     const AutoPitchCorrectionResult unaligned = AutoPitchCorrector::process(
         input,
         expectedSampleRate,
@@ -477,6 +478,7 @@ bool checkPhaseAlignmentOnSteadyTone()
         50.0f,
         1000.0f,
         1.0f,
+        false,
         false);
     if (aligned.samples.size() != input.size() ||
         unaligned.samples.size() != input.size() ||
@@ -591,7 +593,8 @@ bool checkPhaseAlignmentOnChangingToneWithGap()
         50.0f,
         1000.0f,
         0.2f,
-        true);
+        true,
+        false);
     if (result.samples.size() != input.size() ||
         result.frameDiagnostics.size() != result.frameAnalysis.size())
     {
@@ -687,7 +690,9 @@ bool writeFloatWav(
 
 bool comparePhaseAlignmentOnInput(
     const std::filesystem::path& inputPath,
-    const std::filesystem::path& outputDirectory)
+    const std::filesystem::path& outputDirectory,
+    const Scale& scale,
+    float retuneSpeed)
 {
     WavReader reader;
     if (!reader.load(inputPath) ||
@@ -708,30 +713,44 @@ bool comparePhaseAlignmentOnInput(
     }
 
     const float sampleRate = static_cast<float>(reader.getSampleRate());
-    const Scale cMajor(60, ScaleType::Major);
     const AutoPitchCorrectionResult aligned = AutoPitchCorrector::process(
         reader.getSamples(),
         sampleRate,
-        cMajor,
+        scale,
         2048,
         512,
         50.0f,
         1000.0f,
-        0.05f,
-        true);
+        retuneSpeed,
+        true,
+        false);
     const AutoPitchCorrectionResult unaligned = AutoPitchCorrector::process(
         reader.getSamples(),
         sampleRate,
-        cMajor,
+        scale,
         2048,
         512,
         50.0f,
         1000.0f,
-        0.05f,
+        retuneSpeed,
+        false,
         false);
+    const AutoPitchCorrectionResult continuity = AutoPitchCorrector::process(
+        reader.getSamples(),
+        sampleRate,
+        scale,
+        2048,
+        512,
+        50.0f,
+        1000.0f,
+        retuneSpeed,
+        true,
+        true);
     if (aligned.samples.size() != reader.getSamples().size() ||
         unaligned.samples.size() != reader.getSamples().size() ||
-        aligned.frameAnalysis.size() != unaligned.frameAnalysis.size())
+        continuity.samples.size() != reader.getSamples().size() ||
+        aligned.frameAnalysis.size() != unaligned.frameAnalysis.size() ||
+        aligned.frameAnalysis.size() != continuity.frameAnalysis.size())
     {
         std::cerr << "Phase alignment A/B render failed\n";
         return false;
@@ -744,15 +763,25 @@ bool comparePhaseAlignmentOnInput(
             aligned.frameDiagnostics[i];
         const PitchCorrectionFrameDiagnostics& withoutAlignment =
             unaligned.frameDiagnostics[i];
+        const PitchCorrectionFrameDiagnostics& regularized =
+            continuity.frameDiagnostics[i];
         samePitchDecisions = samePitchDecisions &&
             aligned.frameAnalysis[i].targetNote.midi ==
                 unaligned.frameAnalysis[i].targetNote.midi &&
+            aligned.frameAnalysis[i].targetNote.midi ==
+                continuity.frameAnalysis[i].targetNote.midi &&
             withAlignment.targetMidi == withoutAlignment.targetMidi &&
+            withAlignment.targetMidi == regularized.targetMidi &&
             withAlignment.trackedFrequency ==
                 withoutAlignment.trackedFrequency &&
+            withAlignment.trackedFrequency ==
+                regularized.trackedFrequency &&
             withAlignment.pitchRatio == withoutAlignment.pitchRatio &&
+            withAlignment.pitchRatio == regularized.pitchRatio &&
             withAlignment.smoothedCorrectionCents ==
-                withoutAlignment.smoothedCorrectionCents;
+                withoutAlignment.smoothedCorrectionCents &&
+            withAlignment.smoothedCorrectionCents ==
+                regularized.smoothedCorrectionCents;
     }
 
     const std::string stem = inputPath.stem().string();
@@ -760,8 +789,11 @@ bool comparePhaseAlignmentOnInput(
         outputDirectory / (stem + "_phase_alignment_on.wav");
     const std::filesystem::path unalignedPath =
         outputDirectory / (stem + "_phase_alignment_off.wav");
+    const std::filesystem::path continuityPath =
+        outputDirectory / (stem + "_phase_continuity.wav");
     if (std::filesystem::exists(alignedPath) ||
-        std::filesystem::exists(unalignedPath))
+        std::filesystem::exists(unalignedPath) ||
+        std::filesystem::exists(continuityPath))
     {
         std::cerr << "A/B WAV files already exist in "
                   << outputDirectory
@@ -770,7 +802,11 @@ bool comparePhaseAlignmentOnInput(
     }
     const bool filesWritten =
         writeFloatWav(alignedPath, reader.getSampleRate(), aligned.samples) &&
-        writeFloatWav(unalignedPath, reader.getSampleRate(), unaligned.samples);
+        writeFloatWav(unalignedPath, reader.getSampleRate(), unaligned.samples) &&
+        writeFloatWav(
+            continuityPath,
+            reader.getSampleRate(),
+            continuity.samples);
     if (!filesWritten)
     {
         std::cerr << "Could not write both A/B WAV renders\n";
@@ -779,6 +815,8 @@ bool comparePhaseAlignmentOnInput(
 
     const PhaseAlignmentStatistics statistics =
         summarizePhaseAlignment(aligned, sampleRate, 512);
+    const PhaseAlignmentStatistics continuityStatistics =
+        summarizePhaseAlignment(continuity, sampleRate, 512);
     std::cout << "Vocal phase-alignment A/B: "
               << (samePitchDecisions ? "same pitch decisions" :
                                       "pitch decisions differ")
@@ -801,7 +839,17 @@ bool comparePhaseAlignmentOnInput(
               << calculateRmsDifference(aligned.samples, unaligned.samples)
               << '\n'
               << "Alignment on: " << alignedPath << '\n'
-              << "Alignment off: " << unalignedPath << '\n';
+              << "Alignment off: " << unalignedPath << '\n'
+              << "Continuity regularization: valid alignment frames="
+              << continuityStatistics.validFrames
+              << ", mean correlation="
+              << continuityStatistics.meanCorrelation
+              << ", boundary hits="
+              << continuityStatistics.boundaryHits
+              << ", render RMS difference from alignment on="
+              << calculateRmsDifference(aligned.samples, continuity.samples)
+              << '\n'
+              << "Continuity render: " << continuityPath << '\n';
     return samePitchDecisions;
 }
 
@@ -1327,6 +1375,29 @@ bool checkPitchFrameStabilizer()
 
 int main(int argc, char** argv)
 {
+    if (argc == 7 &&
+        std::string(argv[1]) == "--phase-alignment-ab")
+    {
+        const int rootMidi = std::stoi(argv[4]);
+        const std::string scaleName = argv[5];
+        ScaleType scaleType;
+        if (scaleName == "major")
+            scaleType = ScaleType::Major;
+        else if (scaleName == "minor")
+            scaleType = ScaleType::Minor;
+        else
+        {
+            std::cerr << "Scale must be major or minor\n";
+            return 2;
+        }
+
+        return comparePhaseAlignmentOnInput(
+            argv[2],
+            argv[3],
+            Scale(rootMidi, scaleType),
+            std::stof(argv[6])) ? 0 : 1;
+    }
+
     if ((argc == 7 || argc == 10) &&
         std::string(argv[1]) == "--compare-f0")
     {
@@ -1365,12 +1436,18 @@ int main(int argc, char** argv)
     passed = checkPhaseAlignmentOnChangingToneWithGap() && passed;
     if (argc == 3)
     {
-        passed = comparePhaseAlignmentOnInput(argv[1], argv[2]) && passed;
+        passed = comparePhaseAlignmentOnInput(
+            argv[1],
+            argv[2],
+            Scale(60, ScaleType::Major),
+            0.05f) && passed;
     }
     else if (argc != 1)
     {
         std::cerr << "Usage: PitchAnalysisDiagnostics "
-                     "[input-mono.wav output-directory]\n";
+                     "[input-mono.wav output-directory] | "
+                     "--phase-alignment-ab input.wav output-directory "
+                     "root-midi major|minor retune-speed\n";
         passed = false;
     }
 

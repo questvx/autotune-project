@@ -22,7 +22,7 @@ static filesystem::path getExecutablePath(const char *argv0)
 
 static filesystem::path getAssetPath(const filesystem::path &exePath)
 {
-    return exePath.parent_path() / ".." / ".." / "assets" / "gosia1.wav";
+    return exePath.parent_path() / ".." / ".." / "assets" / "rainbow.wav";
 }
 
 // ----- Main function -----

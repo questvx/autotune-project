@@ -44,6 +44,7 @@ public:
         float minFrequency,
         float maxFrequency,
         float retuneSpeed,
-        bool phaseAlignmentEnabled = true
+        bool phaseAlignmentEnabled = true,
+        bool phaseContinuityEnabled = true
     );
 };
