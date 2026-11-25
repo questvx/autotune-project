@@ -163,7 +163,8 @@ AutoPitchCorrectionResult AutoPitchCorrector::process(
     float retuneSpeed,
     bool phaseAlignmentEnabled,
     bool phaseContinuityEnabled,
-    float flexTune)
+    float flexTune,
+    float naturalVibrato)
 {
     AutoPitchCorrectionResult result;
     if (samples.empty() ||
@@ -181,7 +182,10 @@ AutoPitchCorrectionResult AutoPitchCorrector::process(
         retuneSpeed > 1.0f ||
         !std::isfinite(flexTune) ||
         flexTune < 0.0f ||
-        flexTune > 1.0f)
+        flexTune > 1.0f ||
+        !std::isfinite(naturalVibrato) ||
+        naturalVibrato < 0.0f ||
+        naturalVibrato > 1.0f)
     {
         return result;
     }
@@ -215,6 +219,12 @@ AutoPitchCorrectionResult AutoPitchCorrector::process(
     RetuneSpeed correctionSmoother(retuneSpeed);
     bool hasPreviousUnwrappedPhaseShift = false;
     float previousUnwrappedPhaseShift = 0.0f;
+    bool hasVibratoBaseline = false;
+    int vibratoTargetMidi = -1;
+    float vibratoBaselineCents = 0.0f;
+    const float vibratoBaselineAlpha = 1.0f - std::exp(
+        -2.0f * static_cast<float>(std::acos(-1.0)) * 2.0f *
+        static_cast<float>(hopSize) / sampleRate);
 
     for (size_t frameIndex = 0; frameIndex < frames.size(); ++frameIndex)
     {
@@ -237,9 +247,43 @@ AutoPitchCorrectionResult AutoPitchCorrector::process(
                     tracked.frequency / tracked.targetFrequency))
             : 0.0f;
         diagnostics.requestedCorrectionCents = targetCorrection;
+
+        float preservedVibratoCents = 0.0f;
+        if (tracked.voiced &&
+            naturalVibrato > 0.0f &&
+            tracked.targetFrequency > 0.0f)
+        {
+            const float pitchDeviationCents =
+                1200.0f * std::log2(
+                    tracked.frequency / tracked.targetFrequency);
+            if (!hasVibratoBaseline ||
+                vibratoTargetMidi != tracked.targetNote.midi)
+            {
+                vibratoBaselineCents = pitchDeviationCents;
+                vibratoTargetMidi = tracked.targetNote.midi;
+                hasVibratoBaseline = true;
+            }
+            else
+            {
+                vibratoBaselineCents += vibratoBaselineAlpha *
+                    (pitchDeviationCents - vibratoBaselineCents);
+                preservedVibratoCents =
+                    (pitchDeviationCents - vibratoBaselineCents) *
+                    naturalVibrato;
+            }
+        }
+        else
+        {
+            hasVibratoBaseline = false;
+            vibratoTargetMidi = -1;
+        }
+        diagnostics.preservedVibratoCents = preservedVibratoCents;
+
+        const float vibratoAwareCorrection =
+            targetCorrection + preservedVibratoCents;
         const float smoothedCorrection =
             correctionSmoother.process(
-                applyFlexTune(targetCorrection, flexTune));
+                applyFlexTune(vibratoAwareCorrection, flexTune));
         diagnostics.smoothedCorrectionCents = smoothedCorrection;
 
         const float ratio = std::pow(

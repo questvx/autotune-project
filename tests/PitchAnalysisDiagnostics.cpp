@@ -1232,6 +1232,148 @@ bool checkFlexTuneSoftZone()
     return passed;
 }
 
+bool checkNaturalVibratoPreservation()
+{
+    constexpr float targetFrequency = 261.6256f;
+    constexpr float vibratoDepthCents = 20.0f;
+    constexpr float vibratoRateHz = 5.0f;
+    constexpr float durationSeconds = 2.0f;
+    const size_t sampleCount = static_cast<size_t>(
+        expectedSampleRate * durationSeconds);
+    const size_t firstSteadyFrame =
+        static_cast<size_t>(expectedSampleRate * 0.25f / 512.0f);
+    const size_t lastSteadyFrame =
+        static_cast<size_t>(expectedSampleRate * 1.75f / 512.0f);
+    const Scale cMajor(60, ScaleType::Major);
+
+    struct VibratoMetrics
+    {
+        double inputStandardDeviation = 0.0;
+        double outputStandardDeviation = 0.0;
+        size_t voicedFrames = 0;
+    };
+
+    auto measureVibrato = [&](float inputVibratoDepth, float naturalVibrato)
+    {
+        std::vector<float> input(sampleCount);
+        double phase = 0.0;
+        for (size_t i = 0; i < input.size(); ++i)
+        {
+            const float time =
+                static_cast<float>(i) / expectedSampleRate;
+            const float vibratoCents = inputVibratoDepth *
+                std::sin(2.0f * pi * vibratoRateHz * time);
+            const float inputFrequency = targetFrequency *
+                std::pow(2.0f, vibratoCents / 1200.0f);
+            input[i] = 0.5f * static_cast<float>(std::sin(phase));
+            phase += 2.0 * pi * inputFrequency / expectedSampleRate;
+        }
+
+        const AutoPitchCorrectionResult result =
+            AutoPitchCorrector::process(
+                input,
+                expectedSampleRate,
+                cMajor,
+                2048,
+                512,
+                50.0f,
+                1000.0f,
+                1.0f,
+                true,
+                true,
+                0.0f,
+                naturalVibrato);
+        VibratoMetrics metrics;
+        if (result.samples.size() != input.size() ||
+            result.frameDiagnostics.size() <= lastSteadyFrame)
+        {
+            return metrics;
+        }
+
+        double inputSum = 0.0;
+        double outputSum = 0.0;
+        std::vector<double> inputDeviations;
+        std::vector<double> outputDeviations;
+        for (size_t i = firstSteadyFrame; i < lastSteadyFrame; ++i)
+        {
+            const PitchCorrectionFrameDiagnostics& frame =
+                result.frameDiagnostics[i];
+            if (!frame.voiced ||
+                frame.targetFrequency <= 0.0f ||
+                frame.trackedFrequency <= 0.0f)
+            {
+                continue;
+            }
+
+            const double inputDeviation =
+                1200.0 * std::log2(
+                    frame.trackedFrequency / frame.targetFrequency);
+            const double outputDeviation =
+                1200.0 * std::log2(
+                    frame.trackedFrequency * frame.pitchRatio /
+                    frame.targetFrequency);
+            inputDeviations.push_back(inputDeviation);
+            outputDeviations.push_back(outputDeviation);
+            inputSum += inputDeviation;
+            outputSum += outputDeviation;
+        }
+
+        metrics.voicedFrames = inputDeviations.size();
+        if (metrics.voicedFrames == 0)
+            return metrics;
+
+        const double inputMean =
+            inputSum / static_cast<double>(metrics.voicedFrames);
+        const double outputMean =
+            outputSum / static_cast<double>(metrics.voicedFrames);
+        double inputVariance = 0.0;
+        double outputVariance = 0.0;
+        for (size_t i = 0; i < metrics.voicedFrames; ++i)
+        {
+            const double inputDifference =
+                inputDeviations[i] - inputMean;
+            const double outputDifference =
+                outputDeviations[i] - outputMean;
+            inputVariance += inputDifference * inputDifference;
+            outputVariance += outputDifference * outputDifference;
+        }
+
+        metrics.inputStandardDeviation = std::sqrt(
+            inputVariance / static_cast<double>(metrics.voicedFrames));
+        metrics.outputStandardDeviation = std::sqrt(
+            outputVariance / static_cast<double>(metrics.voicedFrames));
+        return metrics;
+    };
+
+    const VibratoMetrics flattened =
+        measureVibrato(vibratoDepthCents, 0.0f);
+    const VibratoMetrics preserved =
+        measureVibrato(vibratoDepthCents, 1.0f);
+    const VibratoMetrics generatedFromNone =
+        measureVibrato(0.0f, 1.0f);
+
+    const bool passed =
+        flattened.voicedFrames > 40 &&
+        preserved.voicedFrames > 40 &&
+        generatedFromNone.voicedFrames > 40 &&
+        preserved.outputStandardDeviation >
+            flattened.outputStandardDeviation * 2.0 + 2.0 &&
+        preserved.outputStandardDeviation > 4.0 &&
+        generatedFromNone.outputStandardDeviation < 5.0;
+
+    std::cout << "Natural Vibrato: flattened output deviation "
+              << flattened.outputStandardDeviation
+              << " cents, preserved "
+              << preserved.outputStandardDeviation
+              << " cents from input "
+              << preserved.inputStandardDeviation
+              << ", clean-tone output "
+              << generatedFromNone.outputStandardDeviation
+              << " cents, "
+              << (passed ? "PASS" : "FAIL") << '\n';
+    return passed;
+}
+
 bool checkUnvoicedPassThrough()
 {
     const std::vector<float> input(
@@ -1534,6 +1676,7 @@ int main(int argc, char** argv)
     passed = checkTargetSelectionUsesMeasuredPitch() && passed;
     passed = checkAutomaticCorrection() && passed;
     passed = checkFlexTuneSoftZone() && passed;
+    passed = checkNaturalVibratoPreservation() && passed;
     passed = checkUnvoicedPassThrough() && passed;
     passed = checkInScaleToneIsUnchanged() && passed;
     passed = checkPitchFrameStabilizer() && passed;
