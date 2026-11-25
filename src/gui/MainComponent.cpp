@@ -167,15 +167,11 @@ MainComponent::MainComponent()
     outputLabel.setText("No output selected", juce::dontSendNotification);
     formatLabel.setText("MONO WAV  |  OFFLINE", juce::dontSendNotification);
     statusLabel.setText("Choose a file to begin.", juce::dontSendNotification);
-    pitchDisplayLabel.setText("—", juce::dontSendNotification);
-    pitchFrequencyLabel.setText(
-        "PITCH SUMMARY AFTER PROCESSING",
-        juce::dontSendNotification);
 
     for (juce::Label* label :
          {&inputLabel, &outputLabel, &rootNoteLabel, &scaleTypeLabel,
           &retuneSpeedLabel, &formatLabel, &statusLabel,
-          &pitchFrequencyLabel, &inputTypeLabel, &transposeLabel,
+          &inputTypeLabel, &transposeLabel,
           &lowLatencyLabel, &flexTuneLabel, &naturalVibratoLabel,
           &humanizeLabel, &retuneSpeedValueLabel, &flexTuneValueLabel,
           &naturalVibratoValueLabel, &humanizeValueLabel})
@@ -196,14 +192,6 @@ MainComponent::MainComponent()
     inputTypeLabel.setText("Input Type  |  WIP", juce::dontSendNotification);
     transposeLabel.setText("Transpose  |  WIP", juce::dontSendNotification);
     lowLatencyLabel.setText("WIP", juce::dontSendNotification);
-    pitchDisplayLabel.setFont(
-        juce::Font(juce::FontOptions(52.0f, juce::Font::bold)));
-    pitchDisplayLabel.setJustificationType(juce::Justification::centred);
-    pitchDisplayLabel.setColour(
-        juce::Label::textColourId,
-        juce::Colour(0xffe2eaff));
-    pitchFrequencyLabel.setJustificationType(
-        juce::Justification::centred);
     formatLabel.setColour(
         juce::Label::textColourId,
         juce::Colour(0xff8493a8));
@@ -318,7 +306,7 @@ MainComponent::MainComponent()
             juce::dontSendNotification);
     };
 
-    const std::array<juce::Component*, 34> components{
+    const std::array<juce::Component*, 32> components{
         &titleLabel,
         &subtitleLabel,
         &inputLabel,
@@ -328,8 +316,6 @@ MainComponent::MainComponent()
         &retuneSpeedLabel,
         &formatLabel,
         &statusLabel,
-        &pitchDisplayLabel,
-        &pitchFrequencyLabel,
         &inputTypeLabel,
         &transposeLabel,
         &lowLatencyLabel,
@@ -450,17 +436,6 @@ void MainComponent::resized()
     mainArea.removeFromTop(4);
 
     waveformDisplayArea = mainArea.removeFromTop(136).reduced(0, 4);
-    const int noteCentreX = waveformDisplayArea.getCentreX();
-    pitchDisplayLabel.setBounds(
-        noteCentreX - 58,
-        waveformDisplayArea.getY() + 22,
-        116,
-        68);
-    pitchFrequencyLabel.setBounds(
-        noteCentreX - 105,
-        waveformDisplayArea.getY() + 91,
-        210,
-        22);
     mainArea.removeFromTop(4);
 
     auto outputRow = mainArea.removeFromTop(32);
@@ -552,12 +527,6 @@ void MainComponent::chooseInputFile()
                 juce::dontSendNotification);
             safeThis->statusLabel.setText(
                 "Choose where to save the corrected WAV.",
-                juce::dontSendNotification);
-            safeThis->pitchDisplayLabel.setText(
-                "—",
-                juce::dontSendNotification);
-            safeThis->pitchFrequencyLabel.setText(
-                "PITCH SUMMARY AFTER PROCESSING",
                 juce::dontSendNotification);
             safeThis->waveformPeaks.clear();
             safeThis->repaint();
@@ -695,7 +664,7 @@ void MainComponent::startProcessing()
         juce::Label::textColourId,
         juce::Colour(0xffaebbd0));
     statusLabel.setText(
-        "Processing audio…",
+        "Processing audio...",
         juce::dontSendNotification);
 
     processingPool.addJob(
@@ -709,8 +678,6 @@ void MainComponent::startProcessing()
         {
             bool succeeded = false;
             juce::String message;
-            juce::String detectedNote = "—";
-            juce::String detectedFrequency = "No voiced pitch detected";
             WavReader reader;
 
             if (!reader.load(inputPath))
@@ -748,50 +715,16 @@ void MainComponent::startProcessing()
                 }
                 else
                 {
-                    for (size_t i = 0;
-                         i < correction.frameAnalysis.size();
-                         ++i)
-                    {
-                        const PitchAnalysisResult& analysis =
-                            correction.frameAnalysis[i];
-                        if (!correction.frameDiagnostics[i].voiced ||
-                            analysis.note.name == nullptr)
-                        {
-                            continue;
-                        }
-
-                        const int octave = analysis.note.midi / 12 - 1;
-                        detectedNote =
-                            juce::String(analysis.note.name) +
-                            juce::String(octave);
-                        detectedFrequency =
-                            juce::String(
-                                analysis.pitchResult.frequency,
-                                1) +
-                            " Hz";
-                        break;
-                    }
-
                     succeeded = true;
                     message = "Finished: " + outputName;
                 }
             }
 
             juce::MessageManager::callAsync(
-                [safeThis,
-                 succeeded,
-                 message,
-                 detectedNote,
-                 detectedFrequency]
+                [safeThis, succeeded, message]
                 {
                     if (safeThis != nullptr)
-                    {
-                        safeThis->finishProcessing(
-                            succeeded,
-                            message,
-                            detectedNote,
-                            detectedFrequency);
-                    }
+                        safeThis->finishProcessing(succeeded, message);
                 });
         });
 }
@@ -811,9 +744,7 @@ void MainComponent::setProcessingState(bool isProcessing)
 
 void MainComponent::finishProcessing(
     bool succeeded,
-    const juce::String& message,
-    const juce::String& detectedNote,
-    const juce::String& detectedFrequency)
+    const juce::String& message)
 {
     setProcessingState(false);
     statusLabel.setText(
@@ -824,15 +755,6 @@ void MainComponent::finishProcessing(
         succeeded
             ? juce::Colour(0xff74d99f)
             : juce::Colour(0xffff8c8c));
-    if (succeeded)
-    {
-        pitchDisplayLabel.setText(
-            detectedNote,
-            juce::dontSendNotification);
-        pitchFrequencyLabel.setText(
-            detectedFrequency,
-            juce::dontSendNotification);
-    }
 }
 
 void MainComponent::updateProcessButton()

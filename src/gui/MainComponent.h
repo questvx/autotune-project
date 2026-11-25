@@ -35,11 +35,7 @@ private:
     void updateWaveformPreview(const juce::File& file);
     void startProcessing();
     void setProcessingState(bool isProcessing);
-    void finishProcessing(
-        bool succeeded,
-        const juce::String& message,
-        const juce::String& detectedNote,
-        const juce::String& detectedFrequency);
+    void finishProcessing(bool succeeded, const juce::String& message);
     void updateProcessButton();
     void updateRetuneSpeedValue();
 
@@ -52,8 +48,6 @@ private:
     juce::Label retuneSpeedLabel;
     juce::Label formatLabel;
     juce::Label statusLabel;
-    juce::Label pitchDisplayLabel;
-    juce::Label pitchFrequencyLabel;
     juce::Label inputTypeLabel;
     juce::Label transposeLabel;
     juce::Label lowLatencyLabel;
@@ -68,7 +62,7 @@ private:
     juce::TextButton inputButton{"Choose input WAV"};
     juce::TextButton outputButton{"Choose output"};
     juce::TextButton processButton{"Process and export"};
-    juce::TextButton settingsButton{"⚙"};
+    juce::TextButton settingsButton{"Settings"};
     juce::ComboBox rootNoteBox;
     juce::ComboBox scaleTypeBox;
     juce::ComboBox inputTypeBox;
