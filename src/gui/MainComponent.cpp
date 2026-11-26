@@ -269,12 +269,14 @@ MainComponent::MainComponent()
     configureRotary(humanizeSlider, juce::Colour(0xffffbd48));
     humanizeSlider.setRange(0.0, 100.0, 1.0);
     humanizeSlider.setValue(20.0);
-    humanizeSlider.setEnabled(false);
+    humanizeSlider.setTooltip(
+        "Gradually slows correction on sustained notes; note changes retain the selected Retune Speed.");
+    humanizeSlider.onValueChange = [this] { updateHumanizeValue(); };
 
     updateRetuneSpeedValue();
     updateFlexTuneValue();
     updateNaturalVibratoValue();
-    humanizeValueLabel.setText("20%  |  WIP", juce::dontSendNotification);
+    updateHumanizeValue();
     for (juce::Label* valueLabel :
          {&retuneSpeedValueLabel, &flexTuneValueLabel,
           &naturalVibratoValueLabel, &humanizeValueLabel})
@@ -664,6 +666,8 @@ void MainComponent::startProcessing()
         static_cast<float>(flexTuneSlider.getValue() / 100.0);
     const float naturalVibrato =
         static_cast<float>(naturalVibratoSlider.getValue() / 100.0);
+    const float humanize =
+        static_cast<float>(humanizeSlider.getValue() / 100.0);
     auto safeThis = juce::Component::SafePointer<MainComponent>(this);
 
     setProcessingState(true);
@@ -683,7 +687,8 @@ void MainComponent::startProcessing()
          scaleType,
          retuneSpeed,
          flexTune,
-         naturalVibrato]
+         naturalVibrato,
+         humanize]
         {
             bool succeeded = false;
             juce::String message;
@@ -710,7 +715,8 @@ void MainComponent::startProcessing()
                         true,
                         true,
                         flexTune,
-                        naturalVibrato);
+                        naturalVibrato,
+                        humanize);
 
                 if (correction.samples.size() != reader.getSamples().size() ||
                     correction.frameAnalysis.empty() ||
@@ -800,5 +806,12 @@ void MainComponent::updateNaturalVibratoValue()
     naturalVibratoValueLabel.setText(
         juce::String(
             static_cast<int>(naturalVibratoSlider.getValue())) + "%",
+        juce::dontSendNotification);
+}
+
+void MainComponent::updateHumanizeValue()
+{
+    humanizeValueLabel.setText(
+        juce::String(static_cast<int>(humanizeSlider.getValue())) + "%",
         juce::dontSendNotification);
 }
