@@ -19,6 +19,7 @@ struct PitchCorrectionFrameDiagnostics
     int phaseShiftSamples = 0;
     int phaseShiftSearchLimitSamples = 0;
     float phaseAlignmentCorrelation = 0.0f;
+    float preservedVibratoCents = 0.0f;
     bool voiced = false;
     bool pitchShiftApplied = false;
     bool phaseAlignmentValid = false;
@@ -46,6 +47,7 @@ public:
         float retuneSpeed,
         bool phaseAlignmentEnabled = true,
         bool phaseContinuityEnabled = true,
-        float flexTune = 0.0f
+        float flexTune = 0.0f,
+        float naturalVibrato = 0.0f
     );
 };

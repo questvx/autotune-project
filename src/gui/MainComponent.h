@@ -39,6 +39,7 @@ private:
     void updateProcessButton();
     void updateRetuneSpeedValue();
     void updateFlexTuneValue();
+    void updateNaturalVibratoValue();
 
     juce::Label titleLabel;
     juce::Label subtitleLabel;
