@@ -314,3 +314,37 @@ Ograniczenie:
 [DO WERYFIKACJI] Potwierdzenie odsłuchowe i pomiary dotyczą badanego
 fragmentu. Poprawkę należy jeszcze sprawdzić na całym nagraniu, innych
 samogłoskach, wysokościach, vibrato i przejściach między nutami.
+
+8. Obsługa plików stereo [WAŻNE — ROZSZERZENIE TORU AUDIO]
+----------------------------------------------------------
+Cel:
+Umożliwić wczytywanie i eksport plików WAV mono oraz stereo bez
+niezamierzonego downmixu i bez niezależnej korekcji kanałów, która
+mogłaby powodować ruch obrazu stereo.
+
+Implementacja:
+- WavReader przechowuje próbki interleaved i akceptuje WAV-y jedno- oraz
+  dwukanałowe. Pliki z większą liczbą kanałów są jawnie odrzucane.
+- Analizę F0 wykonuje się na kanale o większej łącznej energii. Wspólne
+  pitch-marki, ratio korekcji i przesunięcie fazy są następnie używane
+  dla obu kanałów.
+- Sygnały L/R pozostają oddzielne w pamięci, podglądzie przebiegu i
+  eksporcie; wynikowy WAV zachowuje liczbę kanałów wejścia.
+- Wejście mono korzysta z dotychczasowej ścieżki przetwarzania.
+
+Weryfikacja:
+- Test syntetyczny potwierdza zachowanie relacji amplitudy i przeciwnej
+  polaryzacji między kanałami po wspólnej korekcji.
+- Test pliku WAV potwierdza odczyt dwóch kanałów w kolejności
+  interleaved i zachowanie ich próbek.
+- Test sprawdza również stereo z sygnałem tylko w prawym kanale oraz
+  zgodność wyjścia mono ze starą ścieżką.
+- Cele AutoTuneStandalone, AutoTuneEngineering i
+  PitchAnalysisDiagnostics zbudowały się; testy
+  PitchAnalysisDiagnostics oraz PSOLADiagnostics przeszły.
+
+Ograniczenia:
+[DO WERYFIKACJI] Wspólna analiza wybiera kanał o większej energii.
+Założeniem jest, że stereo zawiera ten sam główny materiał wokalny w
+obu kanałach. Obsługa wielokanałowa powyżej stereo, niezależnych źródeł
+nut w L/R i wejścia mikrofonowego nie jest częścią tej zmiany.

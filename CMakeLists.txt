@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(AUTO_TUNE_CORE_SOURCES
     src/WavReader/WavReader.cpp
+    src/wavWriter/WavWriter.cpp
     src/dsp/frameGenerator/FrameGenerator.cpp
     src/dsp/pitchAnalysis/pitchAnalyzer/PitchAnalyzer.cpp
     src/dsp/pitchAnalysis/pitchDetector/PitchDetector.cpp
@@ -98,6 +99,7 @@ if(BUILD_TESTING)
         PitchAnalysisDiagnostics
         tests/PitchAnalysisDiagnostics.cpp
         src/wavReader/WavReader.cpp
+        src/wavWriter/WavWriter.cpp
         src/dsp/frameGenerator/FrameGenerator.cpp
         src/dsp/pitchAnalysis/pitchAnalyzer/PitchAnalyzer.cpp
         src/dsp/pitchAnalysis/pitchDetector/PitchDetector.cpp

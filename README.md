@@ -6,14 +6,14 @@ The project demonstrates practical digital signal processing (DSP), audio data h
 
 ## Features
 
-- Reads mono WAV files and converts audio samples to floating-point values.
+- Reads mono or stereo WAV files and converts audio samples to floating-point values.
 - Splits audio into overlapping frames.
 - Estimates fundamental frequency using normalized autocorrelation.
 - Converts frequencies to MIDI notes and finds the nearest allowed note in a major or minor scale.
 - Calculates the deviation between detected and target pitches in cents.
 - Experiments with pitch-period marking and pitch shifting using PSOLA (Pitch-Synchronous Overlap-Add) with a Hann window.
 - Automatically corrects voiced audio frame by frame toward the selected scale, with smoothed retuning and overlap-add.
-- Writes the processed signal to a WAV file.
+- Writes the processed signal to a WAV file while preserving the input channel count and stereo image.
 
 ## Tech stack
 
@@ -26,7 +26,7 @@ The project demonstrates practical digital signal processing (DSP), audio data h
 
 - CMake 3.22 or later.
 - A C++ compiler with C++20 support.
-- An input mono WAV file for processing.
+- An input mono or stereo WAV file for processing.
 
 ## Build and run
 
@@ -38,7 +38,7 @@ cmake --build build --config Debug --target AutoTuneStandalone
 .\build\AutoTuneStandalone_artefacts\Debug\AutoTune.exe
 ```
 
-The standalone interface uses a compact tuner-style layout. It lets you choose an input WAV and output path, set the root note and major/minor scale, and adjust Retune Speed, Flex Tune, Natural Vibrato, and Humanize. Flex Tune keeps small pitch deviations more natural: at 100%, correction is suppressed within 30 cents, fades in smoothly from 30 to 60 cents, and remains full above 60 cents. Natural Vibrato preserves a percentage of the detected input vibrato, where 0% flattens it and 100% preserves it fully. Humanize gradually reduces correction response during a sustained note, reaching its full effect after one second; it does not add random pitch variation, and 0% preserves the existing Retune Speed behavior. A waveform preview is shown for the selected audio. Processing runs in the background, and the current reader supports mono WAV files only.
+The standalone interface uses a compact tuner-style layout. It lets you choose a mono or stereo input WAV and output path, set the root note and major/minor scale, and adjust Retune Speed, Flex Tune, Natural Vibrato, and Humanize. Stereo files retain both channels: the channel with greater total energy supplies the shared pitch analysis, and both channels use the same pitch marks, correction ratio, and phase shift to avoid stereo image drift. Flex Tune keeps small pitch deviations more natural: at 100%, correction is suppressed within 30 cents, fades in smoothly from 30 to 60 cents, and remains full above 60 cents. Natural Vibrato preserves a percentage of the detected input vibrato, where 0% flattens it and 100% preserves it fully. Humanize gradually reduces correction response during a sustained note, reaching its full effect after one second; it does not add random pitch variation, and 0% preserves the existing Retune Speed behavior. A waveform preview is shown for the selected audio. Processing runs in the background; WAV files with more than two channels are not supported.
 
 Input Type, Transpose, and Low Latency are shown as work in progress. They are disabled and do not affect the rendered audio yet.
 
@@ -88,7 +88,7 @@ external/dr_wav.h                  Bundled WAV library
 
 ## Limitations and next steps
 
-- The application currently reads mono audio and uses the hard-coded files from `assets` folder.
+- The standalone app and command-line example support mono and stereo WAV files. The command-line example uses a hard-coded input file from the `assets` folder.
 - Analysis settings, scale, and test pitch-shifting values are configured in the source code.
 - PSOLA and per-frame correction are experimental; vocal quality and transitions between changing pitches have not yet been validated.
 - There is no graphical interface or real-time audio processing yet. The automatic-correction diagnostic currently uses a synthetic sine signal.

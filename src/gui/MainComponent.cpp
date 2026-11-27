@@ -3,7 +3,7 @@
 #include "dsp/pitchCorrection/AutoPitchCorrector.h"
 #include "scale/Scale.h"
 #include "wavReader/WavReader.h"
-#include "../../external/dr_wav.h"
+#include "wavWriter/WavWriter.h"
 
 #include <algorithm>
 #include <array>
@@ -14,58 +14,40 @@
 namespace
 {
 std::vector<float> calculateWaveformPeaks(
-    const std::vector<float>& samples)
+    const std::vector<float>& samples,
+    unsigned int channelCount)
 {
     constexpr size_t barCount = 72;
     std::vector<float> peaks(barCount, 0.0f);
-    if (samples.empty())
+    if (samples.empty() ||
+        (channelCount != 1 && channelCount != 2) ||
+        samples.size() % channelCount != 0)
+    {
         return peaks;
+    }
+
+    const size_t frameCount = samples.size() / channelCount;
 
     for (size_t bar = 0; bar < barCount; ++bar)
     {
-        const size_t start = bar * samples.size() / barCount;
-        const size_t end = (bar + 1) * samples.size() / barCount;
-        for (size_t i = start; i < end; ++i)
-            peaks[bar] = std::max(peaks[bar], std::abs(samples[i]));
+        const size_t start = bar * frameCount / barCount;
+        const size_t end = (bar + 1) * frameCount / barCount;
+        for (size_t frame = start; frame < end; ++frame)
+        {
+            for (unsigned int channel = 0;
+                 channel < channelCount;
+                 ++channel)
+            {
+                peaks[bar] = std::max(
+                    peaks[bar],
+                    std::abs(samples[frame * channelCount + channel]));
+            }
+        }
     }
 
     return peaks;
 }
 
-bool writeFloatWav(
-    const std::filesystem::path& path,
-    unsigned int sampleRate,
-    const std::vector<float>& samples)
-{
-    if (samples.empty())
-        return false;
-
-    drwav_data_format format{};
-    format.container = drwav_container_riff;
-    format.format = DR_WAVE_FORMAT_IEEE_FLOAT;
-    format.channels = 1;
-    format.sampleRate = sampleRate;
-    format.bitsPerSample = 32;
-
-    drwav wav{};
-    if (!drwav_init_file_write_sequential_pcm_frames(
-            &wav,
-            path.string().c_str(),
-            &format,
-            static_cast<drwav_uint64>(samples.size()),
-            nullptr))
-    {
-        return false;
-    }
-
-    const drwav_uint64 framesWritten = drwav_write_pcm_frames(
-        &wav,
-        static_cast<drwav_uint64>(samples.size()),
-        samples.data());
-    const drwav_result uninitResult = drwav_uninit(&wav);
-    return framesWritten == samples.size() &&
-        uninitResult == DRWAV_SUCCESS;
-}
 }
 
 void AutoTuneLookAndFeel::drawRotarySlider(
@@ -157,7 +139,7 @@ MainComponent::MainComponent()
         juce::Colour(0xfff3f4f6));
 
     subtitleLabel.setText(
-        "PITCH CORRECTION  /  MONO WAV",
+        "PITCH CORRECTION  /  MONO + STEREO WAV",
         juce::dontSendNotification);
     subtitleLabel.setColour(
         juce::Label::textColourId,
@@ -165,7 +147,9 @@ MainComponent::MainComponent()
 
     inputLabel.setText("No input selected", juce::dontSendNotification);
     outputLabel.setText("No output selected", juce::dontSendNotification);
-    formatLabel.setText("MONO WAV  |  OFFLINE", juce::dontSendNotification);
+    formatLabel.setText(
+        "MONO / STEREO WAV  |  OFFLINE",
+        juce::dontSendNotification);
     statusLabel.setText("Choose a file to begin.", juce::dontSendNotification);
 
     for (juce::Label* label :
@@ -502,7 +486,7 @@ void MainComponent::chooseInputFile()
 {
     auto safeThis = juce::Component::SafePointer<MainComponent>(this);
     activeFileChooser = std::make_unique<juce::FileChooser>(
-        "Choose a mono WAV file",
+        "Choose a mono or stereo WAV file",
         juce::File::getSpecialLocation(
             juce::File::userDocumentsDirectory),
         "*.wav",
@@ -551,7 +535,11 @@ void MainComponent::updateWaveformPreview(const juce::File& file)
         const bool loaded = reader.load(path);
         std::vector<float> peaks;
         if (loaded)
-            peaks = calculateWaveformPeaks(reader.getSamples());
+        {
+            peaks = calculateWaveformPeaks(
+                reader.getSamples(),
+                reader.getChannels());
+        }
 
         juce::MessageManager::callAsync(
             [safeThis, loaded, peaks = std::move(peaks)]() mutable
@@ -564,7 +552,7 @@ void MainComponent::updateWaveformPreview(const juce::File& file)
                 if (!loaded && !safeThis->processing)
                 {
                     safeThis->statusLabel.setText(
-                        "Preview unavailable. Mono WAV is required.",
+                        "Preview unavailable. Mono or stereo WAV is required.",
                         juce::dontSendNotification);
                 }
             });
@@ -697,14 +685,15 @@ void MainComponent::startProcessing()
             if (!reader.load(inputPath))
             {
                 message =
-                    "Could not read the file. Check that it is a valid mono WAV.";
+                    "Could not read the file. Check that it is a valid mono or stereo WAV.";
             }
             else
             {
                 const Scale scale(rootMidi, scaleType);
                 const AutoPitchCorrectionResult correction =
-                    AutoPitchCorrector::process(
+                    AutoPitchCorrector::processInterleaved(
                         reader.getSamples(),
+                        reader.getChannels(),
                         static_cast<float>(reader.getSampleRate()),
                         scale,
                         2048,
@@ -725,10 +714,11 @@ void MainComponent::startProcessing()
                 {
                     message = "Pitch correction returned invalid output.";
                 }
-                else if (!writeFloatWav(
+                else if (!WavWriter::writeFloatWav(
                              outputPath,
                              reader.getSampleRate(),
-                             correction.samples))
+                             correction.samples,
+                             reader.getChannels()))
                 {
                     message = "Could not write the output WAV file.";
                 }

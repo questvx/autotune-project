@@ -10,9 +10,11 @@
 #include "dsp/pitchShifter/PSOLAGrain.h"
 #include "dsp/pitchShifter/PSOLAProcessor.h"
 #include "scale/Scale.h"
+#include "wavWriter/WavWriter.h"
 #include "../external/dr_wav.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <iostream>
@@ -323,6 +325,183 @@ bool checkAutomaticCorrection()
               << " cents, maximum sample step "
               << maximumSampleStep
               << " samples, "
+              << (passed ? "PASS" : "FAIL") << '\n';
+    return passed;
+}
+
+bool checkStereoCorrectionUsesLinkedPitchControl()
+{
+    constexpr float inputFrequency = 277.1826f;
+    constexpr float durationSeconds = 1.5f;
+    constexpr size_t frameCount = static_cast<size_t>(
+        expectedSampleRate * durationSeconds);
+    std::vector<float> interleaved(frameCount * 2);
+    std::vector<float> mono(frameCount);
+    for (size_t frame = 0; frame < frameCount; ++frame)
+    {
+        const float left = 0.5f * std::sin(
+            2.0f * pi * inputFrequency *
+            static_cast<float>(frame) / expectedSampleRate);
+        mono[frame] = left;
+        interleaved[frame * 2] = left;
+        interleaved[frame * 2 + 1] = -0.5f * left;
+    }
+
+    const Scale cMajor(60, ScaleType::Major);
+    const AutoPitchCorrectionResult monoResult =
+        AutoPitchCorrector::process(
+            mono,
+            expectedSampleRate,
+            cMajor,
+            2048,
+            512,
+            50.0f,
+            1000.0f,
+            1.0f);
+    const AutoPitchCorrectionResult monoInterleavedResult =
+        AutoPitchCorrector::processInterleaved(
+            mono,
+            1,
+            expectedSampleRate,
+            cMajor,
+            2048,
+            512,
+            50.0f,
+            1000.0f,
+            1.0f);
+    const AutoPitchCorrectionResult stereoResult =
+        AutoPitchCorrector::processInterleaved(
+            interleaved,
+            2,
+            expectedSampleRate,
+            cMajor,
+            2048,
+            512,
+            50.0f,
+            1000.0f,
+            1.0f);
+    if (monoResult.samples.size() != frameCount ||
+        monoInterleavedResult.samples != monoResult.samples ||
+        stereoResult.samples.size() != interleaved.size() ||
+        stereoResult.frameDiagnostics.empty())
+    {
+        std::cout << "Linked stereo pitch correction: invalid output FAIL\n";
+        return false;
+    }
+
+    float maximumLinkedChannelError = 0.0f;
+    std::vector<float> rightOnlyStereo(frameCount * 2, 0.0f);
+    for (size_t frame = 0; frame < frameCount; ++frame)
+    {
+        maximumLinkedChannelError = std::max(
+            maximumLinkedChannelError,
+            std::abs(
+                stereoResult.samples[frame * 2 + 1] +
+                0.5f * stereoResult.samples[frame * 2]));
+        rightOnlyStereo[frame * 2 + 1] = mono[frame];
+    }
+
+    const AutoPitchCorrectionResult rightOnlyResult =
+        AutoPitchCorrector::processInterleaved(
+            rightOnlyStereo,
+            2,
+            expectedSampleRate,
+            cMajor,
+            2048,
+            512,
+            50.0f,
+            1000.0f,
+            1.0f);
+    if (rightOnlyResult.samples.size() != rightOnlyStereo.size())
+        return false;
+
+    float maximumSilentChannelSample = 0.0f;
+    double correctedRightEnergy = 0.0;
+    for (size_t frame = 0; frame < frameCount; ++frame)
+    {
+        maximumSilentChannelSample = std::max(
+            maximumSilentChannelSample,
+            std::abs(rightOnlyResult.samples[frame * 2]));
+        const double sample = rightOnlyResult.samples[frame * 2 + 1];
+        correctedRightEnergy += sample * sample;
+    }
+    const double correctedRightRms = std::sqrt(
+        correctedRightEnergy / static_cast<double>(frameCount));
+    const bool passed =
+        maximumLinkedChannelError < 1.0e-5f &&
+        maximumSilentChannelSample == 0.0f &&
+        correctedRightRms > 0.1;
+    std::cout << "Linked stereo pitch correction: channel relation error "
+              << maximumLinkedChannelError
+              << ", right-only RMS " << correctedRightRms
+              << ", silent-channel peak " << maximumSilentChannelSample
+              << ", " << (passed ? "PASS" : "FAIL") << '\n';
+    return passed;
+}
+
+bool checkStereoWavReaderPreservesInterleavedChannels()
+{
+    constexpr size_t frameCount = 32;
+    const std::filesystem::path testPath =
+        std::filesystem::temp_directory_path() /
+        ("autotune_stereo_reader_" +
+         std::to_string(
+             std::chrono::steady_clock::now()
+                 .time_since_epoch()
+                 .count()) +
+         ".wav");
+    std::vector<float> expectedSamples(frameCount * 2);
+    for (size_t frame = 0; frame < frameCount; ++frame)
+    {
+        expectedSamples[frame * 2] =
+            static_cast<float>(frame) / static_cast<float>(frameCount);
+        expectedSamples[frame * 2 + 1] =
+            -expectedSamples[frame * 2];
+    }
+    if (!WavWriter::writeFloatWav(
+            testPath,
+            static_cast<unsigned int>(expectedSampleRate),
+            expectedSamples,
+            2))
+    {
+        std::cerr << "Could not write temporary stereo WAV through WavWriter\n";
+        std::error_code cleanupError;
+        std::filesystem::remove(testPath, cleanupError);
+        return false;
+    }
+
+    WavReader reader;
+    const bool loaded = reader.load(testPath);
+    std::error_code cleanupError;
+    const bool removed = std::filesystem::remove(testPath, cleanupError);
+    if (cleanupError || !removed)
+    {
+        std::cerr << "Could not remove temporary stereo WAV\n";
+        return false;
+    }
+
+    bool samplesMatch =
+        reader.getSamples().size() == expectedSamples.size();
+    if (samplesMatch)
+    {
+        for (size_t i = 0; i < expectedSamples.size(); ++i)
+        {
+            if (std::abs(reader.getSamples()[i] - expectedSamples[i]) >
+                1.0e-6f)
+            {
+                samplesMatch = false;
+                break;
+            }
+        }
+    }
+
+    const bool passed =
+        loaded &&
+        reader.getChannels() == 2 &&
+        reader.getSampleRate() ==
+            static_cast<unsigned int>(expectedSampleRate) &&
+        samplesMatch;
+    std::cout << "Stereo WAV writer/reader preserve interleaved channels: "
               << (passed ? "PASS" : "FAIL") << '\n';
     return passed;
 }
@@ -2531,6 +2710,8 @@ int main(int argc, char** argv)
     passed = checkCMajorANotes() && passed;
     passed = checkTargetSelectionUsesMeasuredPitch() && passed;
     passed = checkAutomaticCorrection() && passed;
+    passed = checkStereoCorrectionUsesLinkedPitchControl() && passed;
+    passed = checkStereoWavReaderPreservesInterleavedChannels() && passed;
     passed = checkFlexTuneSoftZone() && passed;
     passed = checkNaturalVibratoPreservation() && passed;
     passed = checkHumanizeSustainedPitchResponse() && passed;

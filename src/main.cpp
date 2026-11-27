@@ -3,9 +3,9 @@
 #include <iomanip>
 #include <filesystem>
 #include "wavReader/WavReader.h"
+#include "wavWriter/WavWriter.h"
 #include "dsp/pitchCorrection/AutoPitchCorrector.h"
 #include "scale/Scale.h"
-#include "../external/dr_wav.h"
 
 using namespace std;
 
@@ -44,8 +44,10 @@ int main(int argc, char **argv)
     }
 
     const float sampleRate = static_cast<float>(reader.getSampleRate());
-    AutoPitchCorrectionResult correction = AutoPitchCorrector::process(
+    AutoPitchCorrectionResult correction =
+        AutoPitchCorrector::processInterleaved(
         reader.getSamples(),
+        reader.getChannels(),
         sampleRate,
         scale,
         2048,
@@ -67,31 +69,11 @@ int main(int argc, char **argv)
     std::cout << "Analyzed frames: "
               << correction.frameAnalysis.size() << '\n';
 
-    drwav_data_format format{};
-    format.container = drwav_container_riff;
-    format.format = DR_WAVE_FORMAT_IEEE_FLOAT;
-    format.channels = 1;
-    format.sampleRate = reader.getSampleRate();
-    format.bitsPerSample = 32;
-
-    drwav wav{};
-    bool saved = drwav_init_file_write_sequential_pcm_frames(
-                     &wav,
-                     "output_3.wav",
-                     &format,
-                     static_cast<drwav_uint64>(correction.samples.size()),
-                     nullptr) != 0;
-
-    if (saved)
-    {
-        const drwav_uint64 framesWritten = drwav_write_pcm_frames(
-            &wav,
-            static_cast<drwav_uint64>(correction.samples.size()),
-            correction.samples.data());
-        const drwav_result uninitResult = drwav_uninit(&wav);
-        saved = framesWritten == correction.samples.size() &&
-            uninitResult == DRWAV_SUCCESS;
-    }
+    const bool saved = WavWriter::writeFloatWav(
+        "output_3.wav",
+        reader.getSampleRate(),
+        correction.samples,
+        reader.getChannels());
 
     if (saved)
         std::cout << "Output saved to output_3.wav\n";

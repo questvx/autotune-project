@@ -153,6 +153,216 @@ PhaseAlignmentResult findPhaseAlignment(
 
     return result;
 }
+
+std::vector<float> renderChannelWithSharedDiagnostics(
+    const std::vector<float>& samples,
+    const std::vector<float>& referenceSamples,
+    float sampleRate,
+    size_t frameSize,
+    size_t hopSize,
+    const std::vector<PitchCorrectionFrameDiagnostics>& diagnostics)
+{
+    if (samples.empty() ||
+        samples.size() != referenceSamples.size())
+    {
+        return {};
+    }
+
+    FrameGenerator frameGenerator;
+    const std::vector<AudioFrame> frames =
+        frameGenerator.generateFrames(samples, frameSize, hopSize);
+    const std::vector<AudioFrame> referenceFrames =
+        frameGenerator.generateFrames(
+            referenceSamples,
+            frameSize,
+            hopSize);
+    if (frames.empty() ||
+        frames.size() != referenceFrames.size() ||
+        frames.size() != diagnostics.size())
+    {
+        return {};
+    }
+
+    std::vector<float> output(samples.size(), 0.0f);
+    std::vector<float> windowSum(samples.size(), 0.0f);
+    for (size_t frameIndex = 0; frameIndex < frames.size(); ++frameIndex)
+    {
+        const AudioFrame& frame = frames[frameIndex];
+        const AudioFrame& referenceFrame = referenceFrames[frameIndex];
+        const PitchCorrectionFrameDiagnostics& frameDiagnostics =
+            diagnostics[frameIndex];
+        std::vector<float> correctedFrame = frame.frameSamples;
+
+        if (frameDiagnostics.pitchShiftApplied)
+        {
+            const float trackedFrequency =
+                frameDiagnostics.trackedFrequency;
+            const float periodValue = sampleRate / trackedFrequency;
+            if (!std::isfinite(periodValue) ||
+                periodValue < 1.0f ||
+                periodValue > static_cast<float>(
+                    std::numeric_limits<int>::max()) ||
+                !std::isfinite(frameDiagnostics.pitchRatio) ||
+                frameDiagnostics.pitchRatio <= 0.0f)
+            {
+                return {};
+            }
+
+            const int period = static_cast<int>(std::round(periodValue));
+            const std::vector<int> pitchMarks = PitchMarks::detect(
+                referenceFrame.frameSamples,
+                trackedFrequency,
+                sampleRate);
+            correctedFrame = PSOLAProcessor::process(
+                frame.frameSamples,
+                pitchMarks,
+                frameDiagnostics.pitchRatio,
+                period);
+            if (correctedFrame.size() != frameSize)
+                return {};
+        }
+
+        const long long frameLength =
+            static_cast<long long>(frameSize);
+        const long long shift =
+            frameDiagnostics.pitchShiftApplied
+            ? frameDiagnostics.phaseShiftSamples
+            : 0;
+        const size_t frameStart = frameIndex * hopSize;
+        for (size_t i = 0; i < frameSize; ++i)
+        {
+            const size_t outputIndex = frameStart + i;
+            if (outputIndex >= samples.size())
+                break;
+
+            const size_t shiftedIndex = static_cast<size_t>(
+                (static_cast<long long>(i) + shift + frameLength) %
+                frameLength);
+            const float window = PSOLAGrain::hannWindow(i, frameSize);
+            output[outputIndex] += correctedFrame[shiftedIndex] * window;
+            windowSum[outputIndex] += window;
+        }
+    }
+
+    for (size_t i = 0; i < output.size(); ++i)
+    {
+        if (windowSum[i] <= std::numeric_limits<float>::epsilon())
+            return {};
+        output[i] /= windowSum[i];
+    }
+
+    return output;
+}
+}
+
+AutoPitchCorrectionResult AutoPitchCorrector::processInterleaved(
+    const std::vector<float>& interleavedSamples,
+    unsigned int channelCount,
+    float sampleRate,
+    const Scale& scale,
+    size_t frameSize,
+    size_t hopSize,
+    float minFrequency,
+    float maxFrequency,
+    float retuneSpeed,
+    bool phaseAlignmentEnabled,
+    bool phaseContinuityEnabled,
+    float flexTune,
+    float naturalVibrato,
+    float humanize)
+{
+    if (channelCount != 1 && channelCount != 2)
+        return {};
+    if (interleavedSamples.empty() ||
+        interleavedSamples.size() % channelCount != 0)
+    {
+        return {};
+    }
+
+    if (channelCount == 1)
+    {
+        return process(
+            interleavedSamples,
+            sampleRate,
+            scale,
+            frameSize,
+            hopSize,
+            minFrequency,
+            maxFrequency,
+            retuneSpeed,
+            phaseAlignmentEnabled,
+            phaseContinuityEnabled,
+            flexTune,
+            naturalVibrato,
+            humanize);
+    }
+
+    const size_t frameCount = interleavedSamples.size() / channelCount;
+    std::vector<float> leftChannel(frameCount);
+    std::vector<float> rightChannel(frameCount);
+    double leftEnergy = 0.0;
+    double rightEnergy = 0.0;
+    for (size_t frame = 0; frame < frameCount; ++frame)
+    {
+        const float left = interleavedSamples[frame * 2];
+        const float right = interleavedSamples[frame * 2 + 1];
+        if (!std::isfinite(left) || !std::isfinite(right))
+            return {};
+
+        leftChannel[frame] = left;
+        rightChannel[frame] = right;
+        leftEnergy += static_cast<double>(left) * left;
+        rightEnergy += static_cast<double>(right) * right;
+    }
+
+    const bool referenceIsRight = rightEnergy > leftEnergy;
+    const std::vector<float>& referenceChannel =
+        referenceIsRight ? rightChannel : leftChannel;
+    const std::vector<float>& otherChannel =
+        referenceIsRight ? leftChannel : rightChannel;
+    AutoPitchCorrectionResult result = process(
+        referenceChannel,
+        sampleRate,
+        scale,
+        frameSize,
+        hopSize,
+        minFrequency,
+        maxFrequency,
+        retuneSpeed,
+        phaseAlignmentEnabled,
+        phaseContinuityEnabled,
+        flexTune,
+        naturalVibrato,
+        humanize);
+    if (result.samples.size() != frameCount ||
+        result.frameDiagnostics.empty())
+    {
+        return {};
+    }
+
+    const std::vector<float> otherOutput =
+        renderChannelWithSharedDiagnostics(
+            otherChannel,
+            referenceChannel,
+            sampleRate,
+            frameSize,
+            hopSize,
+            result.frameDiagnostics);
+    if (otherOutput.size() != frameCount)
+        return {};
+
+    std::vector<float> interleavedOutput(interleavedSamples.size());
+    for (size_t frame = 0; frame < frameCount; ++frame)
+    {
+        const float referenceSample = result.samples[frame];
+        const float otherSample = otherOutput[frame];
+        interleavedOutput[frame * 2] =
+            referenceIsRight ? otherSample : referenceSample;
+        interleavedOutput[frame * 2 + 1] =
+            referenceIsRight ? referenceSample : otherSample;
+    }
+    result.samples = std::move(interleavedOutput);
+    return result;
 }
 
 AutoPitchCorrectionResult AutoPitchCorrector::process(

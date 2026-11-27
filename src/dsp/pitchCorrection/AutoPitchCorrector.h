@@ -36,6 +36,23 @@ struct AutoPitchCorrectionResult
 class AutoPitchCorrector
 {
 public:
+    static AutoPitchCorrectionResult processInterleaved(
+        const std::vector<float>& interleavedSamples,
+        unsigned int channelCount,
+        float sampleRate,
+        const Scale& scale,
+        size_t frameSize,
+        size_t hopSize,
+        float minFrequency,
+        float maxFrequency,
+        float retuneSpeed,
+        bool phaseAlignmentEnabled = true,
+        bool phaseContinuityEnabled = true,
+        float flexTune = 0.0f,
+        float naturalVibrato = 0.0f,
+        float humanize = 0.0f
+    );
+
     static AutoPitchCorrectionResult process(
         const std::vector<float>& samples,
         float sampleRate,
