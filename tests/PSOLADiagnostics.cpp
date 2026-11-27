@@ -1,5 +1,6 @@
 #include "wavReader/WavReader.h"
 #include "dsp/pitchShifter/PitchMarks.h"
+#include "dsp/pitchShifter/PSOLAGrain.h"
 #include "dsp/pitchShifter/PSOLAProcessor.h"
 
 #include <algorithm>
@@ -227,6 +228,192 @@ bool runCoverageDiagnostic()
               << ", minimum interior sample=" << minimum << std::endl;
     return passed;
 }
+
+bool checkPitchMarksLockToPositivePeaks()
+{
+    constexpr float inputFrequency = 440.0f;
+    std::vector<float> input(sampleCount);
+    for (size_t i = 0; i < input.size(); ++i)
+    {
+        input[i] = 0.5f * std::sin(
+            2.0f * pi * inputFrequency * static_cast<float>(i) /
+            sampleRate);
+    }
+
+    const std::vector<int> pitchMarks = PitchMarks::detect(
+        input,
+        inputFrequency,
+        sampleRate);
+    if (pitchMarks.size() < 10)
+        return false;
+
+    float minimumPeakLevel = 1.0f;
+    for (const int pitchMark : pitchMarks)
+    {
+        if (pitchMark < 0 ||
+            static_cast<size_t>(pitchMark) >= input.size())
+        {
+            return false;
+        }
+        minimumPeakLevel = std::min(
+            minimumPeakLevel,
+            input[static_cast<size_t>(pitchMark)] / 0.5f);
+    }
+
+    const bool passed = minimumPeakLevel >= 0.99f;
+    std::cout << "Pitch marks on positive peaks: "
+              << (passed ? "PASS" : "FAIL")
+              << ", minimum normalized peak level="
+              << minimumPeakLevel << std::endl;
+    return passed;
+}
+
+bool checkPitchMarksPreferNearestPeakWhenPeakStrengthAlternates()
+{
+    constexpr float testSampleRate = 22000.0f;
+    constexpr float inputFrequency = 220.0f;
+    constexpr int period = 100;
+    constexpr int cycleCount = 40;
+    std::vector<float> input(
+        static_cast<size_t>(period * cycleCount),
+        0.0f);
+
+    for (size_t i = 0; i < input.size(); ++i)
+    {
+        const int cycle = static_cast<int>(i) / period;
+        const double phase = static_cast<double>(i % period);
+        const double firstPeakDistance = phase - 30.0;
+        const double secondPeakDistance = phase - 38.0;
+        const double secondPeakAmplitude =
+            cycle % 2 == 0 ? 0.9 : 0.4;
+        input[i] = static_cast<float>(
+            0.6 * std::exp(
+                -0.5 * firstPeakDistance * firstPeakDistance) +
+            secondPeakAmplitude * std::exp(
+                -0.5 * secondPeakDistance * secondPeakDistance));
+    }
+
+    const std::vector<int> pitchMarks = PitchMarks::detect(
+        input,
+        inputFrequency,
+        testSampleRate);
+    if (pitchMarks.size() < 30)
+        return false;
+
+    int maximumPeriodError = 0;
+    for (size_t i = 1; i < pitchMarks.size(); ++i)
+    {
+        maximumPeriodError = std::max(
+            maximumPeriodError,
+            std::abs((pitchMarks[i] - pitchMarks[i - 1]) - period));
+    }
+
+    const bool passed = maximumPeriodError <= 1;
+    std::cout << "Pitch marks prefer the nearest peak when peak strength "
+                 "alternates: "
+              << (passed ? "PASS" : "FAIL")
+              << ", marks=" << pitchMarks.size()
+              << ", max period error=" << maximumPeriodError
+              << " samples" << std::endl;
+    return passed;
+}
+
+bool checkPitchMarksTrackGlidingTone()
+{
+    constexpr float startFrequency = 400.0f;
+    constexpr float endFrequency = 500.0f;
+    constexpr float amplitude = 0.5f;
+    std::vector<float> input(2048);
+    const double duration =
+        static_cast<double>(input.size()) / sampleRate;
+    const double frequencySlope =
+        (endFrequency - startFrequency) / duration;
+    for (size_t i = 0; i < input.size(); ++i)
+    {
+        const double time = static_cast<double>(i) / sampleRate;
+        const double phase = 2.0 * pi * (
+            startFrequency * time +
+            0.5 * frequencySlope * time * time);
+        input[i] = amplitude * static_cast<float>(std::sin(phase));
+    }
+
+    const std::vector<int> pitchMarks = PitchMarks::detect(
+        input,
+        (startFrequency + endFrequency) * 0.5f,
+        sampleRate);
+    std::vector<int> positivePeaks;
+    for (size_t i = 1; i + 1 < input.size(); ++i)
+    {
+        if (input[i] >= input[i - 1] && input[i] > input[i + 1])
+            positivePeaks.push_back(static_cast<int>(i));
+    }
+
+    int maximumPeakDistance = 0;
+    for (const int pitchMark : pitchMarks)
+    {
+        int nearestPeakDistance =
+            static_cast<int>(input.size());
+        for (const int positivePeak : positivePeaks)
+        {
+            nearestPeakDistance = std::min(
+                nearestPeakDistance,
+                std::abs(pitchMark - positivePeak));
+        }
+        maximumPeakDistance = std::max(
+            maximumPeakDistance,
+            nearestPeakDistance);
+    }
+
+    const bool passed =
+        pitchMarks.size() >= 10 && maximumPeakDistance <= 2;
+    std::cout << "Pitch marks track a 400-500 Hz glide: "
+              << (passed ? "PASS" : "FAIL")
+              << ", marks=" << pitchMarks.size()
+              << ", maximum distance from a positive peak="
+              << maximumPeakDistance << " samples" << std::endl;
+    return passed;
+}
+
+bool checkGrainIsSymmetricAroundPitchMark()
+{
+    constexpr int analysisPeriod = 20;
+    constexpr size_t synthesisHalfLength = 15;
+    constexpr int pitchMark = 50;
+    std::vector<float> input(100);
+    for (size_t i = 0; i < input.size(); ++i)
+    {
+        const float phase = 2.0f * pi *
+            static_cast<float>(static_cast<int>(i) - pitchMark) /
+            static_cast<float>(analysisPeriod);
+        input[i] = std::cos(phase);
+    }
+
+    const std::vector<float> grain = PSOLAGrain::extract(
+        input,
+        pitchMark,
+        analysisPeriod,
+        synthesisHalfLength);
+    if (grain.size() != synthesisHalfLength * 2 + 1)
+        return false;
+
+    float maximumSymmetryError = 0.0f;
+    for (size_t offset = 1; offset <= synthesisHalfLength; ++offset)
+    {
+        maximumSymmetryError = std::max(
+            maximumSymmetryError,
+            std::abs(
+                grain[synthesisHalfLength - offset] -
+                grain[synthesisHalfLength + offset]));
+    }
+    const bool passed =
+        std::abs(grain[synthesisHalfLength] - 1.0f) <= 1.0e-6f &&
+        maximumSymmetryError <= 1.0e-5f;
+    std::cout << "PSOLA grain centered symmetrically on pitch mark: "
+              << (passed ? "PASS" : "FAIL")
+              << ", maximum symmetry error="
+              << maximumSymmetryError << std::endl;
+    return passed;
+}
 }
 
 int main()
@@ -260,5 +447,19 @@ int main()
         pitchCasesPassed;
 
     const bool coveragePassed = runCoverageDiagnostic();
-    return pitchCasesPassed && coveragePassed ? 0 : 1;
+    const bool pitchMarksPassed = checkPitchMarksLockToPositivePeaks();
+    const bool nearestPeakPassed =
+        checkPitchMarksPreferNearestPeakWhenPeakStrengthAlternates();
+    const bool glidingPitchMarksPassed =
+        checkPitchMarksTrackGlidingTone();
+    const bool centeredGrainPassed =
+        checkGrainIsSymmetricAroundPitchMark();
+    return pitchCasesPassed &&
+            coveragePassed &&
+            pitchMarksPassed &&
+            nearestPeakPassed &&
+            glidingPitchMarksPassed &&
+            centeredGrainPassed
+        ? 0
+        : 1;
 }
