@@ -22,13 +22,15 @@ std::vector<float> PSOLAGrain::extract(
         return grain;
     }
 
-    const size_t sourceGrainSize =
-        static_cast<size_t>(analysisPeriod) * 2;
-    const size_t grainSize = synthesisHalfLength * 2;
-    if (sourceGrainSize > grain.max_size() ||
-        grainSize > grain.max_size())
+    const size_t maximumGrainSize = grain.max_size();
+    const size_t analysisRadiusSize =
+        static_cast<size_t>(analysisPeriod);
+    if (analysisRadiusSize > (maximumGrainSize - 1) / 2 ||
+        synthesisHalfLength > (maximumGrainSize - 1) / 2)
         return grain;
 
+    const size_t sourceGrainSize = analysisRadiusSize * 2 + 1;
+    const size_t grainSize = synthesisHalfLength * 2 + 1;
     std::vector<float> sourceGrain(sourceGrainSize, 0.0f);
     const long long start =
         static_cast<long long>(pitchMark) - analysisPeriod;
@@ -59,11 +61,9 @@ std::vector<float> PSOLAGrain::extract(
         }
         else
         {
-            const size_t rightLength = synthesisHalfLength - 1;
             sourcePosition = analysisRadius +
-                (analysisRadius - 1.0) *
-                    static_cast<double>(i - synthesisHalfLength) /
-                    static_cast<double>(rightLength);
+                static_cast<double>(i - synthesisHalfLength) *
+                    analysisRadius / synthesisRadius;
         }
 
         const size_t leftIndex =

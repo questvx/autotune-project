@@ -51,10 +51,12 @@ std::vector<float> PSOLAProcessor::process(
     const size_t synthesisHalfLength =
         static_cast<size_t>(std::ceil(synthesisPeriod));
     const size_t padding = synthesisHalfLength;
-    if (padding > (std::numeric_limits<size_t>::max() - samples.size()) / 2)
+    if (samples.size() == std::numeric_limits<size_t>::max() ||
+        padding >
+            (std::numeric_limits<size_t>::max() - samples.size() - 1) / 2)
         return {};
 
-    const size_t paddedSize = samples.size() + 2 * padding;
+    const size_t paddedSize = samples.size() + 2 * padding + 1;
     std::vector<float> output(paddedSize, 0.0f);
     std::vector<float> windowSum(paddedSize, 0.0f);
 

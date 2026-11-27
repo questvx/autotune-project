@@ -1,7 +1,25 @@
 NOTATKI DO PRACY INŻYNIERSKIEJ
 Problemy i poprawki w prototypie AutoTune
 
-Cel prac
+OZNACZENIA WAŻNOŚCI
+-------------------
+[KLUCZOWE] Bezpośrednio związane z głównym problemem lub wnioskiem pracy.
+[WAŻNE] Istotna funkcja, poprawka albo wynik walidacji.
+[POTWIERDZONE] Poparte pomiarem, testem lub odsłuchem.
+[POBOCZNE] Dodatkowa obserwacja; nie jest głównym wynikiem.
+[HISTORYCZNE] Ustawienie lub etap z wcześniejszego pomiaru.
+[DO WERYFIKACJI] Wymaga dalszego testu przed wyciągnięciem wniosku.
+
+NAJWAŻNIEJSZY WNIOSEK
+--------------------
+[KLUCZOWE] Artefakty w badanym wokalu powstawały w PSOLA, ponieważ
+tracker wybierał najsilniejszy szczyt zamiast najbliższego przewidywanej
+pozycji. Wybór najbliższego dodatniego maksimum lokalnego ograniczył
+przeskoki znaczników i poprawił odsłuch. Samo ramkowanie oraz zewnętrzne
+składanie ramek zostały sprawdzone osobno i nie wprowadzały słyszalnej
+zmiany.
+
+Cel prac [KONTEKST]
 -------
 Projekt jest prototypem offline do analizy wysokości dźwięku i korekcji
 intonacji. Prace koncentrowały się na sprawdzeniu algorytmu PSOLA,
@@ -9,7 +27,7 @@ poprawieniu analizy nut oraz połączeniu analizy z automatyczną korekcją.
 Do testów użyto sygnałów sinusoidalnych o znanych częstotliwościach,
 co pozwoliło porównywać wynik programu z oczekiwanym wynikiem.
 
-1. Niepoprawne dzialanie PSOLA
+1. Niepoprawne dzialanie PSOLA [WAŻNE — PODSTAWA DSP]
 ------------------------------
 Problem:
 Początkowa wersja PSOLA nie przesuwała poprawnie wysokości dla wszystkich
@@ -29,7 +47,7 @@ zarówno bez zmiany tonu, jak i przy przesunięciach o oktawę. Sprawdza
 również, czy nakładanie ziaren nie powoduje nieakceptowalnych ubytków
 poziomu sygnału.
 
-2. Wykrywanie niewlasciwego okresu podstawowego
+2. Wykrywanie niewlasciwego okresu podstawowego [WAŻNE]
 ------------------------------------------------
 Problem:
 Autokorelacja potrafiła wybrać późniejszy lokalny szczyt zamiast
@@ -45,7 +63,7 @@ Weryfikacja:
 PitchAnalysisDiagnostics analizuje wszystkie ramki plikow sinusoidalnych
 220 Hz i 880 Hz i porownuje wykryta czestotliwosc z wartoscia oczekiwana.
 
-3. Przypisywanie nut do skali
+3. Przypisywanie nut do skali [WAŻNE — NIEZWIĄZANE BEZPOŚREDNIO Z ARTEFAKTAMI]
 -----------------------------
 Problem:
 Sprawdzanie, czy nuta należy do skali, nieprawidłowo uwzględniało
@@ -60,7 +78,7 @@ klas wysokości od 0 do 11. Dopiero potem porównywany jest stopień skali.
 Weryfikacja:
 Test sprawdza nuty A o numerach MIDI 45, 57 i 69 w skali C-dur.
 
-4. Nadmiarowe ramki na koncu nagrania
+4. Nadmiarowe ramki na koncu nagrania [POBOCZNE]
 -------------------------------------
 Problem:
 Generator ramek tworzył niepotrzebne krótkie ramki na końcu pliku.
@@ -73,7 +91,7 @@ potrzebna do obsłużenia pozostałej części sygnału. Informacja o
 dopełnieniu jest wyliczana na podstawie rzeczywistej długości ostatniej
 ramki.
 
-5. Polaczenie analizy i automatycznej korekcji
+5. Polaczenie analizy i automatycznej korekcji [WAŻNE — INTEGRACJA]
 ----------------------------------------------
 Problem:
 Wcześniej analiza nut i demonstracja PSOLA były oddzielnymi ścieżkami.
@@ -103,7 +121,7 @@ Konfiguracja przykładu w main.cpp:
 - plik wejsciowy: assets/szklanki.wav,
 - plik wynikowy: output.wav.
 
-Zakres weryfikacji i ograniczenia
+Zakres weryfikacji i ograniczenia [WAŻNE]
 --------------------------------
 Po poprawkach budowanie projektu kończy się powodzeniem. Przechodzą testy
 PSOLADiagnostics i PitchAnalysisDiagnostics. Testy obejmują znane sinusy,
@@ -111,13 +129,15 @@ wybrane przesunięcia oktawowe, przynależność nut A do C-dur oraz
 automatyczną korekcję C#4 do C4.
 
 Testy syntetyczne potwierdzają działanie wybranych elementów DSP, ale nie
-potwierdzają jeszcze jakości brzmienia na wokalu ani zachowania przy
-szybko zmieniającej się wysokości. Program jest przetwarzaniem offline;
-nie jest to jeszcze system czasu rzeczywistego. Kolejne etapy powinny
-obejmować odsłuch próbek wokalnych, testy przebiegów o zmiennej wysokości
-oraz ocenę artefaktów na przejściach między nutami.
+potwierdzają samodzielnie jakości brzmienia na wokalu. Dodatkowo, nowy
+tracker pitch-mark został sprawdzony na fragmencie wokalnym 9,9–10,7 s,
+a użytkownik potwierdził poprawę odsłuchową. Nie jest to jeszcze
+walidacja całego nagrania ani różnych głosów i samogłosek.
+Program jest przetwarzaniem offline; nie jest to jeszcze system czasu
+rzeczywistego. Dalsza weryfikacja powinna obejmować całe nagranie,
+różne samogłoski, wysokości i przejścia między nutami.
 
-6. Obserwacje dopasowania fazy na wokalu
+6. Obserwacje dopasowania fazy na wokalu [POBOCZNE — WCZEŚNIEJSZA HIPOTEZA]
 ----------------------------------------
 Data pomiaru: 2026-11-24
 
@@ -212,7 +232,7 @@ odsłuchanie plików A/B. Render z alignerem i bez niego znajduje się w
 build/phase-comparison jako rainbow2_phase_alignment_on.wav oraz
 rainbow2_phase_alignment_off.wav.
 
-Na tym etapie nie dodano stabilizacji fazy ani ograniczenia przesuwania do
+W momencie tego pomiaru nie dodano stabilizacji fazy ani ograniczenia przesuwania do
 obszaru nakładania: dane nie uzasadniają jeszcze takiej zmiany, a prosta
 kara za zmianę przesunięcia mogłaby tłumić oczekiwany dryf wynikający z
 różnicy F0 i celu. Następnym krokiem jest odsłuchanie obu renderów i
@@ -220,8 +240,77 @@ zapisanie, który brzmi lepiej oraz w których fragmentach. Dopiero wtedy
 warto rozważyć regularyzację z uwzględnieniem przewidywanego dryfu i
 ponownie porównać jakość oraz ciągłość.
 
-Uwaga o konfiguracji:
+Późniejsze testy wskazały wybór pitch-mark jako przyczynę artefaktów na
+badanym fragmencie wokalu (sekcja 7). Dopasowanie fazy pozostaje ważnym
+elementem zachowania zmienionej wysokości przy overlap-add, ale nie było
+główną przyczyną zidentyfikowanego problemu.
+
+Uwaga o konfiguracji [HISTORYCZNE]:
 Ustawienia wypisane w starszej sekcji konfiguracji przykładu są
 historyczne. Pomiar z 2026-11-24 używał ustawień wymienionych powyżej.
 Komunikat w main.cpp został poprawiony i jest zgodny z nazwą
 output_3.wav.
+
+7. Artefakty PSOLA i wybór znaczników pitch-mark [KLUCZOWE — GŁÓWNY WYNIK]
+---------------------------------------------------------------------------
+Data pomiaru: 2026-11-26
+
+Objaw:
+W nagraniu wokalnym słyszalne były szorstkie, „skrobiące” artefakty.
+Oryginalny sygnał dry był czysty, ale artefakt pozostawał w renderze
+identity PSOLA przy ratio równym 1. Zmiana Retune Speed i Natural Vibrato
+nie usuwała go. To wskazywało na rekonstrukcję PSOLA, a nie na wybór nuty
+docelowej.
+
+Testy rozdzielające przyczynę:
+- [POTWIERDZONE] Round-trip bez PSOLA: sygnał podzielono na ramki i
+  złożono oknem Hann z normalizacją. Dla fragmentu 9,9–10,7 s błąd
+  względem dry wyniósł RMS 7,51628e-09, maksymalny błąd bezwzględny
+  5,96046e-08. Sam generator ramek i zewnętrzne overlap-add nie
+  wprowadzały słyszalnej zmiany.
+- [POTWIERDZONE] Identity PSOLA nadal różniło się od dry i zachowywało
+  artefakt, więc źródła szukano w znacznikach lub składaniu ziaren PSOLA.
+- [POBOCZNE] Zmiana wariantu vibrato i porównanie korekcji adaptacyjnej
+  ze stałym ratio nie wyjaśniły artefaktu.
+
+Zidentyfikowana przyczyna:
+PitchMarks::detect przewidywał położenie kolejnego cyklu, po czym
+wybierał najsilniejszą próbkę w oknie o promieniu 10% okresu. W sygnale
+wokalnym względna amplituda pobliskich szczytów zmienia się wraz z
+harmonicznymi i formantami. Wybór najsilniejszego szczytu mógł więc
+przeskakiwać między lokalnymi maksimami i przesuwać centra ziaren.
+
+Dla fragmentu 9,9–10,7 s nominalny okres wynosił około 167 próbek.
+Przed poprawką odstępy znaczników mieściły się w zakresie 150–183
+próbek; 361 z 703 odstępów odbiegało od okresu ramki o więcej niż
+jedną próbkę.
+
+Poprawka:
+Tracker wybiera teraz dodatnie maksimum lokalne najbliższe przewidywanej
+pozycji cyklu. Przy równej odległości wybiera szczyt o większej
+amplitudzie. Jeżeli w oknie nie ma takiego maksimum, używany jest
+dotychczasowy wybór najsilniejszej próbki jako fallback. FrameGenerator.cpp
+nie był zmieniany.
+
+Wyniki po poprawce:
+- Zakres odstępów znaczników: 162–170 próbek, mediana 167.
+- Odstępy różniące się o więcej niż jedną próbkę: 150 z 702.
+- RMS różnicy identity PSOLA względem dry spadł z 0,0402241 do 0,0155016.
+  RMS opisuje różnicę próbek; nie jest samodzielną oceną jakości
+  percepcyjnej.
+- [POTWIERDZONE ODSŁUCHEM] Wariant nearest-peak identity PSOLA i
+  frame round-trip zabrzmiały dobrze.
+
+Walidacja:
+- Dodano test syntetyczny z naprzemiennie silniejszymi pobliskimi
+  szczytami; nowy tracker utrzymuje błąd odstępu nie większy niż
+  jedną próbkę.
+- PSOLADiagnostics i PitchAnalysisDiagnostics przeszły.
+- AutoTuneStandalone zbudował się poprawnie.
+- Render porównawczy znajduje się w:
+  build\artifact-investigation\nearest-peak-production-validation\renders\
+
+Ograniczenie:
+[DO WERYFIKACJI] Potwierdzenie odsłuchowe i pomiary dotyczą badanego
+fragmentu. Poprawkę należy jeszcze sprawdzić na całym nagraniu, innych
+samogłoskach, wysokościach, vibrato i przejściach między nutami.
