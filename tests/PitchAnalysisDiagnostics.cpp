@@ -6,6 +6,9 @@
 #include "dsp/pitchAnalysis/pitchDetector/PitchDetector.h"
 #include "dsp/pitchAnalysis/pitchToNote/PitchToNote.h"
 #include "dsp/pitchAnalysis/pitchToNote/TargetNote.h"
+#include "dsp/pitchShifter/PitchMarks.h"
+#include "dsp/pitchShifter/PSOLAGrain.h"
+#include "dsp/pitchShifter/PSOLAProcessor.h"
 #include "scale/Scale.h"
 #include "../external/dr_wav.h"
 
@@ -693,7 +696,10 @@ bool comparePhaseAlignmentOnInput(
     const std::filesystem::path& inputPath,
     const std::filesystem::path& outputDirectory,
     const Scale& scale,
-    float retuneSpeed)
+    float retuneSpeed,
+    float naturalVibrato,
+    size_t frameSize,
+    size_t hopSize)
 {
     WavReader reader;
     if (!reader.load(inputPath) ||
@@ -718,35 +724,44 @@ bool comparePhaseAlignmentOnInput(
         reader.getSamples(),
         sampleRate,
         scale,
-        2048,
-        512,
+        frameSize,
+        hopSize,
         50.0f,
         1000.0f,
         retuneSpeed,
         true,
-        false);
+        false,
+        0.0f,
+        naturalVibrato,
+        0.0f);
     const AutoPitchCorrectionResult unaligned = AutoPitchCorrector::process(
         reader.getSamples(),
         sampleRate,
         scale,
-        2048,
-        512,
+        frameSize,
+        hopSize,
         50.0f,
         1000.0f,
         retuneSpeed,
         false,
-        false);
+        false,
+        0.0f,
+        naturalVibrato,
+        0.0f);
     const AutoPitchCorrectionResult continuity = AutoPitchCorrector::process(
         reader.getSamples(),
         sampleRate,
         scale,
-        2048,
-        512,
+        frameSize,
+        hopSize,
         50.0f,
         1000.0f,
         retuneSpeed,
         true,
-        true);
+        true,
+        0.0f,
+        naturalVibrato,
+        0.0f);
     if (aligned.samples.size() != reader.getSamples().size() ||
         unaligned.samples.size() != reader.getSamples().size() ||
         continuity.samples.size() != reader.getSamples().size() ||
@@ -815,10 +830,13 @@ bool comparePhaseAlignmentOnInput(
     }
 
     const PhaseAlignmentStatistics statistics =
-        summarizePhaseAlignment(aligned, sampleRate, 512);
+        summarizePhaseAlignment(aligned, sampleRate, hopSize);
     const PhaseAlignmentStatistics continuityStatistics =
-        summarizePhaseAlignment(continuity, sampleRate, 512);
+        summarizePhaseAlignment(continuity, sampleRate, hopSize);
     std::cout << "Vocal phase-alignment A/B: "
+              << "natural vibrato=" << naturalVibrato
+              << ", frame/hop=" << frameSize << '/' << hopSize
+              << ", "
               << (samePitchDecisions ? "same pitch decisions" :
                                       "pitch decisions differ")
               << ", valid alignment frames=" << statistics.validFrames
@@ -852,6 +870,642 @@ bool comparePhaseAlignmentOnInput(
               << '\n'
               << "Continuity render: " << continuityPath << '\n';
     return samePitchDecisions;
+}
+
+bool renderFixedF0Comparison(
+    const std::filesystem::path& inputPath,
+    const std::filesystem::path& outputDirectory,
+    int targetMidi)
+{
+    WavReader reader;
+    if (!reader.load(inputPath) ||
+        reader.getSampleRate() == 0 ||
+        reader.getChannels() != 1)
+    {
+        std::cerr << "Could not load mono WAV input "
+                  << inputPath << '\n';
+        return false;
+    }
+
+    std::error_code directoryError;
+    std::filesystem::create_directories(outputDirectory, directoryError);
+    if (directoryError || !std::filesystem::is_directory(outputDirectory))
+    {
+        std::cerr << "Output directory does not exist: "
+                  << outputDirectory << '\n';
+        return false;
+    }
+
+    constexpr size_t frameSize = 2048;
+    constexpr size_t hopSize = 512;
+    const float sampleRate = static_cast<float>(reader.getSampleRate());
+    const Scale cMajor(60, ScaleType::Major);
+    const AutoPitchCorrectionResult adaptive =
+        AutoPitchCorrector::process(
+            reader.getSamples(),
+            sampleRate,
+            cMajor,
+            frameSize,
+            hopSize,
+            50.0f,
+            1000.0f,
+            1.0f,
+            false,
+            false);
+    if (adaptive.samples.size() != reader.getSamples().size() ||
+        adaptive.frameDiagnostics.empty())
+    {
+        std::cerr << "Adaptive pitch render failed\n";
+        return false;
+    }
+
+    std::vector<float> voicedFrequencies;
+    float minimumAdaptiveRatio = std::numeric_limits<float>::max();
+    float maximumAdaptiveRatio = 0.0f;
+    size_t shiftedFrames = 0;
+    for (const PitchCorrectionFrameDiagnostics& diagnostics :
+         adaptive.frameDiagnostics)
+    {
+        if (!diagnostics.voiced || diagnostics.targetMidi != targetMidi)
+            continue;
+        if (diagnostics.pitchShiftApplied)
+        {
+            voicedFrequencies.push_back(diagnostics.trackedFrequency);
+            minimumAdaptiveRatio = std::min(
+                minimumAdaptiveRatio,
+                diagnostics.pitchRatio);
+            maximumAdaptiveRatio = std::max(
+                maximumAdaptiveRatio,
+                diagnostics.pitchRatio);
+            ++shiftedFrames;
+        }
+    }
+    if (voicedFrequencies.empty())
+    {
+        std::cerr << "No pitch-shifted frames target MIDI "
+                  << targetMidi << '\n';
+        return false;
+    }
+
+    std::sort(voicedFrequencies.begin(), voicedFrequencies.end());
+    const size_t middle = voicedFrequencies.size() / 2;
+    const float fixedFrequency = voicedFrequencies.size() % 2 == 0
+        ? (voicedFrequencies[middle - 1] + voicedFrequencies[middle]) * 0.5f
+        : voicedFrequencies[middle];
+    const float targetFrequency =
+        PitchToNote::midiNoteToFrequency(targetMidi);
+    const float fixedRatio = targetFrequency / fixedFrequency;
+    const int fixedPeriod = static_cast<int>(
+        std::round(sampleRate / fixedFrequency));
+
+    FrameGenerator frameGenerator;
+    const std::vector<AudioFrame> frames =
+        frameGenerator.generateFrames(
+            reader.getSamples(),
+            frameSize,
+            hopSize);
+    if (frames.size() != adaptive.frameDiagnostics.size())
+    {
+        std::cerr << "Frame analysis count mismatch\n";
+        return false;
+    }
+
+    std::vector<float> fixedSamples(reader.getSamples().size(), 0.0f);
+    std::vector<float> windowSum(reader.getSamples().size(), 0.0f);
+    for (size_t frameIndex = 0; frameIndex < frames.size(); ++frameIndex)
+    {
+        const AudioFrame& frame = frames[frameIndex];
+        const PitchCorrectionFrameDiagnostics& diagnostics =
+            adaptive.frameDiagnostics[frameIndex];
+        std::vector<float> correctedFrame = frame.frameSamples;
+        if (diagnostics.voiced &&
+            diagnostics.targetMidi == targetMidi &&
+            diagnostics.pitchShiftApplied)
+        {
+            const std::vector<int> pitchMarks = PitchMarks::detect(
+                frame.frameSamples,
+                fixedFrequency,
+                sampleRate);
+            correctedFrame = PSOLAProcessor::process(
+                frame.frameSamples,
+                pitchMarks,
+                fixedRatio,
+                fixedPeriod);
+            if (correctedFrame.size() != frameSize)
+            {
+                std::cerr << "Fixed-F0 PSOLA render failed at frame "
+                          << frameIndex << '\n';
+                return false;
+            }
+        }
+
+        const size_t frameStart = frameIndex * hopSize;
+        for (size_t i = 0; i < frameSize; ++i)
+        {
+            const size_t outputIndex = frameStart + i;
+            if (outputIndex >= fixedSamples.size())
+                break;
+            const float window = PSOLAGrain::hannWindow(i, frameSize);
+            fixedSamples[outputIndex] += correctedFrame[i] * window;
+            windowSum[outputIndex] += window;
+        }
+    }
+
+    for (size_t i = 0; i < fixedSamples.size(); ++i)
+    {
+        if (windowSum[i] <= std::numeric_limits<float>::epsilon())
+        {
+            std::cerr << "Fixed-F0 render has an uncovered output sample\n";
+            return false;
+        }
+        fixedSamples[i] /= windowSum[i];
+    }
+
+    const std::string stem = inputPath.stem().string();
+    const std::filesystem::path adaptivePath =
+        outputDirectory / (stem + "_adaptive_f0.wav");
+    const std::filesystem::path fixedPath =
+        outputDirectory / (stem + "_fixed_f0.wav");
+    if (std::filesystem::exists(adaptivePath) ||
+        std::filesystem::exists(fixedPath))
+    {
+        std::cerr << "Comparison WAV files already exist in "
+                  << outputDirectory
+                  << "; choose a different output directory\n";
+        return false;
+    }
+    if (!writeFloatWav(
+            adaptivePath,
+            reader.getSampleRate(),
+            adaptive.samples) ||
+        !writeFloatWav(
+            fixedPath,
+            reader.getSampleRate(),
+            fixedSamples))
+    {
+        std::cerr << "Could not write fixed-F0 comparison WAV files\n";
+        return false;
+    }
+
+    std::cout << "Fixed-F0 A/B: target MIDI=" << targetMidi
+              << ", median source F0=" << fixedFrequency
+              << " Hz, fixed ratio=" << fixedRatio
+              << ", adaptive ratio range=" << minimumAdaptiveRatio
+              << '-' << maximumAdaptiveRatio
+              << " across " << shiftedFrames << " shifted frames\n"
+              << "Adaptive render: " << adaptivePath << '\n'
+              << "Fixed-F0 render: " << fixedPath << '\n';
+    return true;
+}
+
+std::vector<int> detectStrongestPositivePeakMarks(
+    const std::vector<float>& samples,
+    float frequency,
+    float sampleRate)
+{
+    if (samples.empty() ||
+        !std::isfinite(frequency) ||
+        frequency <= 0.0f ||
+        !std::isfinite(sampleRate) ||
+        sampleRate <= 0.0f)
+    {
+        return {};
+    }
+
+    const float period = sampleRate / frequency;
+    if (!std::isfinite(period) || period <= 0.0f)
+        return {};
+
+    const int searchRadius = static_cast<int>(period * 0.1f);
+    int firstSearchEnd = samples.size() - 1 >
+            static_cast<size_t>(std::numeric_limits<int>::max())
+        ? std::numeric_limits<int>::max()
+        : static_cast<int>(samples.size() - 1);
+    if (period < static_cast<float>(firstSearchEnd))
+        firstSearchEnd = static_cast<int>(std::ceil(period));
+
+    int firstMark = 0;
+    float firstMarkValue = samples.front();
+    for (int i = 1; i <= firstSearchEnd; ++i)
+    {
+        if (samples[static_cast<size_t>(i)] > firstMarkValue)
+        {
+            firstMarkValue = samples[static_cast<size_t>(i)];
+            firstMark = i;
+        }
+    }
+
+    std::vector<int> marks{firstMark};
+    float currentPosition = static_cast<float>(firstMark) + period;
+
+    while (currentPosition < samples.size())
+    {
+        const int predictedPosition =
+            static_cast<int>(std::round(currentPosition));
+        if (predictedPosition < 0 ||
+            static_cast<size_t>(predictedPosition) >= samples.size())
+        {
+            break;
+        }
+
+        const int searchStart =
+            std::max(0, predictedPosition - searchRadius);
+        const int searchEnd =
+            std::min(
+                static_cast<int>(samples.size()) - 1,
+                predictedPosition + searchRadius);
+        int bestPosition = predictedPosition;
+        float bestValue = samples[static_cast<size_t>(predictedPosition)];
+        for (int i = searchStart; i <= searchEnd; ++i)
+        {
+            if (samples[static_cast<size_t>(i)] > bestValue)
+            {
+                bestValue = samples[static_cast<size_t>(i)];
+                bestPosition = i;
+            }
+        }
+        marks.push_back(bestPosition);
+        currentPosition = static_cast<float>(bestPosition) + period;
+    }
+
+    return marks;
+}
+
+bool renderPsolaIsolation(
+    const std::filesystem::path& inputPath,
+    const std::filesystem::path& outputDirectory,
+    int targetMidi)
+{
+    WavReader reader;
+    if (!reader.load(inputPath) ||
+        reader.getSampleRate() == 0 ||
+        reader.getChannels() != 1)
+    {
+        std::cerr << "Could not load mono WAV input "
+                  << inputPath << '\n';
+        return false;
+    }
+
+    std::error_code directoryError;
+    std::filesystem::create_directories(outputDirectory, directoryError);
+    if (directoryError || !std::filesystem::is_directory(outputDirectory))
+    {
+        std::cerr << "Output directory does not exist: "
+                  << outputDirectory << '\n';
+        return false;
+    }
+
+    constexpr size_t frameSize = 2048;
+    constexpr size_t hopSize = 512;
+    const float sampleRate = static_cast<float>(reader.getSampleRate());
+    const Scale cMajor(60, ScaleType::Major);
+    const AutoPitchCorrectionResult analysis =
+        AutoPitchCorrector::process(
+            reader.getSamples(),
+            sampleRate,
+            cMajor,
+            frameSize,
+            hopSize,
+            50.0f,
+            1000.0f,
+            1.0f,
+            false,
+            false);
+    if (analysis.samples.size() != reader.getSamples().size() ||
+        analysis.frameDiagnostics.empty())
+    {
+        std::cerr << "Pitch analysis failed\n";
+        return false;
+    }
+
+    std::vector<float> voicedFrequencies;
+    for (const PitchCorrectionFrameDiagnostics& diagnostics :
+         analysis.frameDiagnostics)
+    {
+        if (diagnostics.voiced &&
+            diagnostics.targetMidi == targetMidi &&
+            diagnostics.pitchShiftApplied)
+        {
+            voicedFrequencies.push_back(diagnostics.trackedFrequency);
+        }
+    }
+    if (voicedFrequencies.empty())
+    {
+        std::cerr << "No pitch-shifted frames target MIDI "
+                  << targetMidi << '\n';
+        return false;
+    }
+
+    std::sort(voicedFrequencies.begin(), voicedFrequencies.end());
+    const size_t middle = voicedFrequencies.size() / 2;
+    const float medianFrequency = voicedFrequencies.size() % 2 == 0
+        ? (voicedFrequencies[middle - 1] + voicedFrequencies[middle]) * 0.5f
+        : voicedFrequencies[middle];
+    const float fixedRatio =
+        PitchToNote::midiNoteToFrequency(targetMidi) / medianFrequency;
+    const int continuousPeriod = static_cast<int>(
+        std::round(sampleRate / medianFrequency));
+    const std::vector<int> continuousPitchMarks = PitchMarks::detect(
+        reader.getSamples(),
+        medianFrequency,
+        sampleRate);
+    const std::vector<float> continuousIdentitySamples =
+        PSOLAProcessor::process(
+            reader.getSamples(),
+            continuousPitchMarks,
+            1.0f,
+            continuousPeriod);
+    if (continuousIdentitySamples.size() != reader.getSamples().size())
+    {
+        std::cerr << "Continuous identity-PSOLA render failed\n";
+        return false;
+    }
+
+    FrameGenerator frameGenerator;
+    const std::vector<AudioFrame> frames =
+        frameGenerator.generateFrames(
+            reader.getSamples(),
+            frameSize,
+            hopSize);
+    if (frames.size() != analysis.frameDiagnostics.size())
+    {
+        std::cerr << "Frame analysis count mismatch\n";
+        return false;
+    }
+
+    std::vector<float> frameRoundTripSamples(
+        reader.getSamples().size(),
+        0.0f);
+    std::vector<float> identitySamples(reader.getSamples().size(), 0.0f);
+    std::vector<float> strongestPeakIdentitySamples(
+        reader.getSamples().size(),
+        0.0f);
+    std::vector<float> fixedRatioSamples(reader.getSamples().size(), 0.0f);
+    std::vector<float> frameRoundTripWindowSum(
+        reader.getSamples().size(),
+        0.0f);
+    std::vector<float> identityWindowSum(reader.getSamples().size(), 0.0f);
+    std::vector<float> strongestPeakWindowSum(
+        reader.getSamples().size(),
+        0.0f);
+    std::vector<float> fixedRatioWindowSum(reader.getSamples().size(), 0.0f);
+    std::vector<int> pitchMarkIntervals;
+    std::vector<int> pitchMarkPeriodErrors;
+    std::vector<int> strongestPeakPeriodErrors;
+    size_t processedFrames = 0;
+    for (size_t frameIndex = 0; frameIndex < frames.size(); ++frameIndex)
+    {
+        const AudioFrame& frame = frames[frameIndex];
+        const PitchCorrectionFrameDiagnostics& diagnostics =
+            analysis.frameDiagnostics[frameIndex];
+        std::vector<float> identityFrame = frame.frameSamples;
+        std::vector<float> strongestPeakIdentityFrame = frame.frameSamples;
+        std::vector<float> fixedRatioFrame = frame.frameSamples;
+        if (diagnostics.voiced &&
+            diagnostics.targetMidi == targetMidi &&
+            diagnostics.pitchShiftApplied)
+        {
+            const float sourceFrequency = diagnostics.trackedFrequency;
+            const float periodValue = sampleRate / sourceFrequency;
+            if (!std::isfinite(periodValue) ||
+                periodValue < 1.0f ||
+                periodValue >
+                    static_cast<float>(std::numeric_limits<int>::max()))
+            {
+                std::cerr << "Invalid F0 at frame " << frameIndex << '\n';
+                return false;
+            }
+
+            const int period = static_cast<int>(std::round(periodValue));
+            const std::vector<int> pitchMarks = PitchMarks::detect(
+                frame.frameSamples,
+                sourceFrequency,
+                sampleRate);
+            const std::vector<int> strongestPeakMarks =
+                detectStrongestPositivePeakMarks(
+                    frame.frameSamples,
+                    sourceFrequency,
+                    sampleRate);
+            if (strongestPeakMarks.empty())
+            {
+                std::cerr << "Strongest-peak tracking failed at frame "
+                          << frameIndex << '\n';
+                return false;
+            }
+            for (size_t markIndex = 1;
+                 markIndex < pitchMarks.size();
+                 ++markIndex)
+            {
+                const int interval =
+                    pitchMarks[markIndex] - pitchMarks[markIndex - 1];
+                pitchMarkIntervals.push_back(interval);
+                pitchMarkPeriodErrors.push_back(
+                    std::abs(interval - period));
+            }
+            for (size_t markIndex = 1;
+                 markIndex < strongestPeakMarks.size();
+                 ++markIndex)
+            {
+                const int interval =
+                    strongestPeakMarks[markIndex] -
+                    strongestPeakMarks[markIndex - 1];
+                strongestPeakPeriodErrors.push_back(
+                    std::abs(interval - period));
+            }
+            identityFrame = PSOLAProcessor::process(
+                frame.frameSamples,
+                pitchMarks,
+                1.0f,
+                period);
+            strongestPeakIdentityFrame = PSOLAProcessor::process(
+                frame.frameSamples,
+                strongestPeakMarks,
+                1.0f,
+                period);
+            fixedRatioFrame = PSOLAProcessor::process(
+                frame.frameSamples,
+                pitchMarks,
+                fixedRatio,
+                period);
+            if (identityFrame.size() != frameSize ||
+                strongestPeakIdentityFrame.size() != frameSize ||
+                fixedRatioFrame.size() != frameSize)
+            {
+                std::cerr << "PSOLA render failed at frame "
+                          << frameIndex << '\n';
+                return false;
+            }
+            ++processedFrames;
+        }
+
+        const size_t frameStart = frameIndex * hopSize;
+        for (size_t i = 0; i < frameSize; ++i)
+        {
+            const size_t outputIndex = frameStart + i;
+            if (outputIndex >= identitySamples.size())
+                break;
+            const float window = PSOLAGrain::hannWindow(i, frameSize);
+            frameRoundTripSamples[outputIndex] +=
+                frame.frameSamples[i] * window;
+            identitySamples[outputIndex] += identityFrame[i] * window;
+            strongestPeakIdentitySamples[outputIndex] +=
+                strongestPeakIdentityFrame[i] * window;
+            fixedRatioSamples[outputIndex] += fixedRatioFrame[i] * window;
+            frameRoundTripWindowSum[outputIndex] += window;
+            identityWindowSum[outputIndex] += window;
+            strongestPeakWindowSum[outputIndex] += window;
+            fixedRatioWindowSum[outputIndex] += window;
+        }
+    }
+
+    for (size_t i = 0; i < identitySamples.size(); ++i)
+    {
+        if (frameRoundTripWindowSum[i] <=
+                std::numeric_limits<float>::epsilon() ||
+            identityWindowSum[i] <= std::numeric_limits<float>::epsilon() ||
+            strongestPeakWindowSum[i] <=
+                std::numeric_limits<float>::epsilon() ||
+            fixedRatioWindowSum[i] <= std::numeric_limits<float>::epsilon())
+        {
+            std::cerr << "PSOLA isolation render has an uncovered sample\n";
+            return false;
+        }
+        frameRoundTripSamples[i] /= frameRoundTripWindowSum[i];
+        identitySamples[i] /= identityWindowSum[i];
+        strongestPeakIdentitySamples[i] /= strongestPeakWindowSum[i];
+        fixedRatioSamples[i] /= fixedRatioWindowSum[i];
+    }
+
+    const std::string stem = inputPath.stem().string();
+    const std::filesystem::path dryPath =
+        outputDirectory / (stem + "_dry.wav");
+    const std::filesystem::path frameRoundTripPath =
+        outputDirectory / (stem + "_frame_roundtrip.wav");
+    const std::filesystem::path identityPath =
+        outputDirectory / (stem + "_identity_psola.wav");
+    const std::filesystem::path strongestPeakIdentityPath =
+        outputDirectory / (stem + "_strongest_peak_identity_psola.wav");
+    const std::filesystem::path continuousIdentityPath =
+        outputDirectory / (stem + "_continuous_identity_psola.wav");
+    const std::filesystem::path fixedRatioPath =
+        outputDirectory / (stem + "_fixed_ratio_psola.wav");
+    if (std::filesystem::exists(dryPath) ||
+        std::filesystem::exists(frameRoundTripPath) ||
+        std::filesystem::exists(identityPath) ||
+        std::filesystem::exists(strongestPeakIdentityPath) ||
+        std::filesystem::exists(continuousIdentityPath) ||
+        std::filesystem::exists(fixedRatioPath))
+    {
+        std::cerr << "PSOLA isolation WAV files already exist in "
+                  << outputDirectory
+                  << "; choose a different output directory\n";
+        return false;
+    }
+    if (!writeFloatWav(
+            dryPath,
+            reader.getSampleRate(),
+            reader.getSamples()) ||
+        !writeFloatWav(
+            frameRoundTripPath,
+            reader.getSampleRate(),
+            frameRoundTripSamples) ||
+        !writeFloatWav(
+            identityPath,
+            reader.getSampleRate(),
+            identitySamples) ||
+        !writeFloatWav(
+            strongestPeakIdentityPath,
+            reader.getSampleRate(),
+            strongestPeakIdentitySamples) ||
+        !writeFloatWav(
+            continuousIdentityPath,
+            reader.getSampleRate(),
+            continuousIdentitySamples) ||
+        !writeFloatWav(
+            fixedRatioPath,
+            reader.getSampleRate(),
+            fixedRatioSamples))
+    {
+        std::cerr << "Could not write PSOLA isolation WAV files\n";
+        return false;
+    }
+
+    float maximumFrameRoundTripError = 0.0f;
+    for (size_t i = 0; i < frameRoundTripSamples.size(); ++i)
+    {
+        maximumFrameRoundTripError = std::max(
+            maximumFrameRoundTripError,
+            std::abs(reader.getSamples()[i] - frameRoundTripSamples[i]));
+    }
+    std::sort(pitchMarkIntervals.begin(), pitchMarkIntervals.end());
+    std::sort(pitchMarkPeriodErrors.begin(), pitchMarkPeriodErrors.end());
+    std::sort(
+        strongestPeakPeriodErrors.begin(),
+        strongestPeakPeriodErrors.end());
+    const size_t nonNominalMarkIntervals = static_cast<size_t>(
+        std::count_if(
+            pitchMarkPeriodErrors.begin(),
+            pitchMarkPeriodErrors.end(),
+            [](int error) { return error > 1; }));
+    const size_t nonNominalStrongestPeakIntervals = static_cast<size_t>(
+        std::count_if(
+            strongestPeakPeriodErrors.begin(),
+            strongestPeakPeriodErrors.end(),
+            [](int error) { return error > 1; }));
+
+    std::cout << "PSOLA isolation: target MIDI=" << targetMidi
+              << ", median source F0=" << medianFrequency
+              << " Hz, fixed ratio=" << fixedRatio
+              << ", PSOLA frames=" << processedFrames << '\n'
+              << "Frame round-trip error: RMS="
+              << calculateRmsDifference(
+                     reader.getSamples(),
+                     frameRoundTripSamples)
+              << ", maximum absolute="
+              << maximumFrameRoundTripError << '\n'
+              << "Pitch-mark interval samples: min/median/max="
+              << (pitchMarkIntervals.empty() ? 0 : pitchMarkIntervals.front())
+              << '/'
+              << (pitchMarkIntervals.empty()
+                      ? 0
+                      : pitchMarkIntervals[pitchMarkIntervals.size() / 2])
+              << '/'
+              << (pitchMarkIntervals.empty() ? 0 : pitchMarkIntervals.back())
+              << ", intervals >1 sample from frame period="
+              << nonNominalMarkIntervals << '/'
+              << pitchMarkPeriodErrors.size() << '\n'
+              << "Strongest-peak intervals >1 sample from frame period="
+              << nonNominalStrongestPeakIntervals << '/'
+              << strongestPeakPeriodErrors.size() << '\n'
+              << "RMS difference (identity / dry)="
+              << calculateRmsDifference(
+                     identitySamples,
+                     reader.getSamples())
+              << ", (strongest-peak identity / dry)="
+              << calculateRmsDifference(
+                     strongestPeakIdentitySamples,
+                     reader.getSamples())
+              << ", (continuous identity PSOLA / dry)="
+              << calculateRmsDifference(
+                     continuousIdentitySamples,
+                     reader.getSamples())
+              << ", (per-frame / continuous identity PSOLA)="
+              << calculateRmsDifference(
+                     identitySamples,
+                     continuousIdentitySamples)
+              << ", (identity / fixed ratio)="
+              << calculateRmsDifference(
+                     identitySamples,
+                     fixedRatioSamples) << '\n'
+              << "Dry: " << dryPath << '\n'
+              << "Frame round-trip: " << frameRoundTripPath << '\n'
+              << "Identity PSOLA: " << identityPath << '\n'
+              << "Strongest-peak identity PSOLA: "
+              << strongestPeakIdentityPath << '\n'
+              << "Continuous identity PSOLA: "
+              << continuousIdentityPath << '\n'
+              << "Fixed-ratio PSOLA: " << fixedRatioPath << '\n';
+    return true;
 }
 
 struct PitchComparisonAudio
@@ -1633,12 +2287,25 @@ bool checkPitchFrameStabilizer()
             50.0f,
             1000.0f);
 
-    std::vector<PitchAnalysisResult> confirmedTargetChange{
-        a4,
-        a4,
-        makeAnalysisFrame(493.8833f, 0.98f, 71, 493.8833f),
-        makeAnalysisFrame(493.8833f, 0.98f, 71, 493.8833f),
-        makeAnalysisFrame(493.8833f, 0.98f, 71, 493.8833f)};
+    std::vector<PitchAnalysisResult> boundaryFlicker{a4};
+    for (int i = 0; i < 8; ++i)
+    {
+        boundaryFlicker.push_back(i % 2 == 0
+            ? makeAnalysisFrame(468.0f, 0.98f, 71, 493.8833f)
+            : makeAnalysisFrame(464.0f, 0.98f, 69, 440.0f));
+    }
+    const std::vector<TrackedPitchFrame> stableBoundaryFlicker =
+        PitchFrameStabilizer::stabilize(
+            boundaryFlicker,
+            50.0f,
+            1000.0f);
+
+    std::vector<PitchAnalysisResult> confirmedTargetChange{a4, a4};
+    for (int i = 0; i < 5; ++i)
+    {
+        confirmedTargetChange.push_back(
+            makeAnalysisFrame(493.8833f, 0.98f, 71, 493.8833f));
+    }
     const std::vector<TrackedPitchFrame> stableTargetChange =
         PitchFrameStabilizer::stabilize(
             confirmedTargetChange,
@@ -1646,8 +2313,16 @@ bool checkPitchFrameStabilizer()
             1000.0f);
     const bool hysteresisPassed =
         stableFlicker[1].targetNote.midi == 69 &&
+        std::all_of(
+            stableBoundaryFlicker.begin(),
+            stableBoundaryFlicker.end(),
+            [](const TrackedPitchFrame& frame)
+            {
+                return frame.targetNote.midi == 69;
+            }) &&
         stableTargetChange[2].targetNote.midi == 69 &&
-        stableTargetChange[3].targetNote.midi == 71;
+        stableTargetChange[4].targetNote.midi == 69 &&
+        stableTargetChange[5].targetNote.midi == 71;
 
     std::vector<PitchAnalysisResult> octaveTargetChange{
         a4,
@@ -1748,10 +2423,62 @@ bool checkPitchFrameStabilizer()
 
 int main(int argc, char** argv)
 {
-    if (argc == 7 &&
+    if (argc == 5 &&
+        std::string(argv[1]) == "--psola-isolation")
+    {
+        const int targetMidi = std::stoi(argv[4]);
+        if (targetMidi < 0 || targetMidi > 127)
+        {
+            std::cerr << "Target MIDI must be between 0 and 127\n";
+            return 2;
+        }
+        return renderPsolaIsolation(
+            argv[2],
+            argv[3],
+            targetMidi) ? 0 : 1;
+    }
+
+    if (argc == 5 &&
+        std::string(argv[1]) == "--fixed-f0-ab")
+    {
+        const int targetMidi = std::stoi(argv[4]);
+        if (targetMidi < 0 || targetMidi > 127)
+        {
+            std::cerr << "Target MIDI must be between 0 and 127\n";
+            return 2;
+        }
+        return renderFixedF0Comparison(
+            argv[2],
+            argv[3],
+            targetMidi) ? 0 : 1;
+    }
+
+    if ((argc == 7 || argc == 8 || argc == 10) &&
         std::string(argv[1]) == "--phase-alignment-ab")
     {
         const int rootMidi = std::stoi(argv[4]);
+        const float naturalVibrato = argc >= 8
+            ? std::stof(argv[7])
+            : 0.0f;
+        const size_t frameSize = argc == 10
+            ? static_cast<size_t>(std::stoull(argv[8]))
+            : 2048;
+        const size_t hopSize = argc == 10
+            ? static_cast<size_t>(std::stoull(argv[9]))
+            : 512;
+        if (!std::isfinite(naturalVibrato) ||
+            naturalVibrato < 0.0f ||
+            naturalVibrato > 1.0f)
+        {
+            std::cerr << "Natural vibrato must be between 0 and 1\n";
+            return 2;
+        }
+        if (frameSize == 0 || hopSize == 0 || hopSize > frameSize)
+        {
+            std::cerr << "Frame and hop sizes must be positive, with "
+                         "hop size no greater than frame size\n";
+            return 2;
+        }
         const std::string scaleName = argv[5];
         ScaleType scaleType;
         if (scaleName == "major")
@@ -1768,7 +2495,10 @@ int main(int argc, char** argv)
             argv[2],
             argv[3],
             Scale(rootMidi, scaleType),
-            std::stof(argv[6])) ? 0 : 1;
+            std::stof(argv[6]),
+            naturalVibrato,
+            frameSize,
+            hopSize) ? 0 : 1;
     }
 
     if ((argc == 7 || argc == 10) &&
@@ -1816,14 +2546,21 @@ int main(int argc, char** argv)
             argv[1],
             argv[2],
             Scale(60, ScaleType::Major),
-            0.05f) && passed;
+            0.05f,
+            0.0f,
+            2048,
+            512) && passed;
     }
     else if (argc != 1)
     {
         std::cerr << "Usage: PitchAnalysisDiagnostics "
                      "[input-mono.wav output-directory] | "
+                     "--psola-isolation input.wav output-directory "
+                     "target-midi | "
+                     "--fixed-f0-ab input.wav output-directory target-midi | "
                      "--phase-alignment-ab input.wav output-directory "
-                     "root-midi major|minor retune-speed\n";
+                     "root-midi major|minor retune-speed "
+                     "[natural-vibrato-0-to-1 [frame-size hop-size]]\n";
         passed = false;
     }
 

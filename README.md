@@ -56,9 +56,16 @@ To render a mono vocal twice with identical pitch analysis and correction settin
 
 The command creates the output directory if needed and writes `<input>_phase_alignment_on.wav` and `<input>_phase_alignment_off.wav`; choose a new output directory if those files already exist. It also reports phase-correlation, search-boundary, unwrapped-shift, and render-difference metrics. These diagnostics do not replace subjective listening or measure real-time performance.
 
+An optional final `natural-vibrato` argument accepts a value from `0.0` to `1.0` and defaults to `0.0`, allowing the same input to be rendered with different vibrato-preservation settings.
+Optional `frame-size` and `hop-size` arguments can follow it to compare analysis-window settings; both default to 2048 and 512 samples.
+
+To compare normal per-frame correction with a fixed median F0 and pitch ratio on a cropped mono segment, run `.\build\Debug\PitchAnalysisDiagnostics.exe --fixed-f0-ab input.wav output-directory target-midi`. The diagnostic disables phase alignment for both renders and writes `<input>_adaptive_f0.wav` and `<input>_fixed_f0.wav`.
+
+To isolate PSOLA reconstruction on a cropped mono segment, run `.\build\Debug\PitchAnalysisDiagnostics.exe --psola-isolation input.wav output-directory target-midi`. It writes the dry input, a frame-only overlap-add round-trip, nearest-peak and strongest-peak per-frame identity-ratio PSOLA renders, continuous identity-ratio PSOLA, and fixed-ratio PSOLA. It also reports frame round-trip error, pitch-mark interval deviations, and render differences.
+
 ## Current implementation
 
-`main.cpp` loads the WAV path configured in `getAssetPath`, splits it into frames of 2048 samples with a hop size of 512 samples, and analyzes pitch in the 50–1000 Hz range. It targets C major, stabilizes isolated frame-level pitch/target glitches, requires two consistent voiced frames before switching nearby target notes, immediately drops stale targets after large pitch leaps, and bridges one-frame voiced gaps. Each frame is pitch-shifted with PSOLA and Hann overlap-add; the retune speed controls how quickly the correction reaches the selected scale pitch. The per-frame report includes raw and tracked F0, confidence, stable target MIDI, requested and smoothed correction, applied pitch ratio, and phase alignment.
+`main.cpp` loads the WAV path configured in `getAssetPath`, splits it into frames of 2048 samples with a hop size of 512 samples, and analyzes pitch in the 50–1000 Hz range. It targets C major, stabilizes isolated frame-level pitch/target glitches, requires a new target to be at least 20 cents closer for four frames before switching to a nearby note, immediately accepts clear large pitch changes, and bridges one-frame voiced gaps. Pitch marks select the nearest positive local peak around the predicted cycle position. Each frame is pitch-shifted with PSOLA and Hann overlap-add; the retune speed controls how quickly the correction reaches the selected scale pitch. The per-frame report includes raw and tracked F0, confidence, stable target MIDI, requested and smoothed correction, applied pitch ratio, and phase alignment.
 
 The example's input path, scale, analysis range, and retune speed are configured in the source code. The program does not yet accept an input path or settings as command-line arguments.
 

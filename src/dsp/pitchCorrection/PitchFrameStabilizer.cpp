@@ -7,6 +7,8 @@
 namespace
 {
 constexpr float minimumPitchConfidence = 0.75f;
+constexpr float minimumTargetChangeAdvantageCents = 20.0f;
+constexpr size_t minimumTargetChangeFrames = 4;
 }
 
 std::vector<TrackedPitchFrame> PitchFrameStabilizer::stabilize(
@@ -128,14 +130,25 @@ std::vector<TrackedPitchFrame> PitchFrameStabilizer::stabilize(
         const float currentTargetDeviationCents = std::abs(
             1200.0f * std::log2(
                 frame.frequency / frame.targetFrequency));
+        const float targetChangeAdvantageCents =
+            acceptedTargetDeviationCents - currentTargetDeviationCents;
         if (acceptedTargetDeviationCents >= 250.0f &&
-            acceptedTargetDeviationCents -
-                currentTargetDeviationCents >= 100.0f)
+            targetChangeAdvantageCents >= 100.0f)
         {
             acceptedTargetMidi = frame.targetNote.midi;
             acceptedTargetFrequency = frame.targetFrequency;
             candidateTargetMidi = -1;
             candidateFrameCount = 0;
+            continue;
+        }
+
+        if (targetChangeAdvantageCents <
+            minimumTargetChangeAdvantageCents)
+        {
+            candidateTargetMidi = -1;
+            candidateFrameCount = 0;
+            frame.targetNote.midi = acceptedTargetMidi;
+            frame.targetFrequency = acceptedTargetFrequency;
             continue;
         }
 
@@ -150,7 +163,7 @@ std::vector<TrackedPitchFrame> PitchFrameStabilizer::stabilize(
             candidateFrameCount = 1;
         }
 
-        if (candidateFrameCount >= 2)
+        if (candidateFrameCount >= minimumTargetChangeFrames)
         {
             acceptedTargetMidi = candidateTargetMidi;
             acceptedTargetFrequency = candidateTargetFrequency;
