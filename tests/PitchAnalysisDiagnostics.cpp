@@ -610,6 +610,97 @@ float estimatePositiveCrossingFrequency(
         static_cast<float>(end - start);
 }
 
+bool checkStereoTransposeSemitoneSteps()
+{
+    constexpr float inputFrequency = 440.0f;
+    constexpr size_t frameCount =
+        static_cast<size_t>(expectedSampleRate);
+    std::vector<float> input(frameCount * 2);
+    for (size_t frame = 0; frame < frameCount; ++frame)
+    {
+        const float sample = 0.5f * std::sin(
+            2.0f * pi * inputFrequency *
+            static_cast<float>(frame) / expectedSampleRate);
+        input[frame * 2] = sample;
+        input[frame * 2 + 1] = -sample;
+    }
+
+    const Scale aMajor(69, ScaleType::Major);
+    bool passed = true;
+    for (const int semitones : {1, -1, 12, -12})
+    {
+        const AutoPitchCorrectionResult result =
+            AutoPitchCorrector::processInterleaved(
+                input,
+                2,
+                expectedSampleRate,
+                aMajor,
+                2048,
+                512,
+                50.0f,
+                1000.0f,
+                1.0f,
+                true,
+                true,
+                0.0f,
+                0.0f,
+                0.0f,
+                semitones);
+        if (result.samples.size() != input.size())
+        {
+            std::cout << "Stereo transpose " << semitones
+                      << " semitone(s): FAIL, invalid output\n";
+            passed = false;
+            continue;
+        }
+
+        std::vector<float> leftChannel(frameCount);
+        std::vector<float> rightChannel(frameCount);
+        for (size_t frame = 0; frame < frameCount; ++frame)
+        {
+            leftChannel[frame] = result.samples[frame * 2];
+            rightChannel[frame] = result.samples[frame * 2 + 1];
+        }
+
+        const float expectedFrequency = inputFrequency * std::pow(
+            2.0f,
+            static_cast<float>(semitones) / 12.0f);
+        const float leftFrequency = estimatePositiveCrossingFrequency(
+            leftChannel,
+            expectedSampleRate);
+        const float rightFrequency = estimatePositiveCrossingFrequency(
+            rightChannel,
+            expectedSampleRate);
+        const bool stepPassed =
+            std::abs(leftFrequency - expectedFrequency) <
+                expectedFrequency * frequencyTolerance &&
+            std::abs(rightFrequency - expectedFrequency) <
+                expectedFrequency * frequencyTolerance;
+        std::cout << "Stereo transpose " << semitones
+                  << " semitone(s): "
+                  << (stepPassed ? "PASS" : "FAIL")
+                  << ", L=" << leftFrequency
+                  << " Hz, R=" << rightFrequency
+                  << " Hz, expected=" << expectedFrequency << " Hz\n";
+        if (!stepPassed && !result.frameDiagnostics.empty())
+        {
+            const PitchCorrectionFrameDiagnostics& diagnostics =
+                result.frameDiagnostics[result.frameDiagnostics.size() / 2];
+            std::cout << "Transpose diagnostics: voiced="
+                      << diagnostics.voiced
+                      << ", pitch shift="
+                      << diagnostics.pitchShiftApplied
+                      << ", ratio=" << diagnostics.pitchRatio
+                      << ", tracked=" << diagnostics.trackedFrequency
+                      << " Hz, target=" << diagnostics.targetFrequency
+                      << " Hz\n";
+        }
+        passed = stepPassed && passed;
+    }
+
+    return passed;
+}
+
 double calculateRmsDifference(
     const std::vector<float>& first,
     const std::vector<float>& second)
@@ -2711,6 +2802,7 @@ int main(int argc, char** argv)
     passed = checkTargetSelectionUsesMeasuredPitch() && passed;
     passed = checkAutomaticCorrection() && passed;
     passed = checkStereoCorrectionUsesLinkedPitchControl() && passed;
+    passed = checkStereoTransposeSemitoneSteps() && passed;
     passed = checkStereoWavReaderPreservesInterleavedChannels() && passed;
     passed = checkFlexTuneSoftZone() && passed;
     passed = checkNaturalVibratoPreservation() && passed;

@@ -174,7 +174,7 @@ MainComponent::MainComponent()
         juce::dontSendNotification);
     humanizeLabel.setText("Humanize", juce::dontSendNotification);
     inputTypeLabel.setText("Input Type  |  WIP", juce::dontSendNotification);
-    transposeLabel.setText("Transpose  |  WIP", juce::dontSendNotification);
+    transposeLabel.setText("Transpose", juce::dontSendNotification);
     lowLatencyLabel.setText("WIP", juce::dontSendNotification);
     formatLabel.setColour(
         juce::Label::textColourId,
@@ -213,7 +213,8 @@ MainComponent::MainComponent()
     transposeSlider.setRange(-12, 12, 1);
     transposeSlider.setValue(0);
     transposeSlider.setTextValueSuffix(" st");
-    transposeSlider.setEnabled(false);
+    transposeSlider.setTooltip(
+        "Shift the corrected pitch by whole semitones.");
     lowLatencyToggle.setEnabled(false);
 
     auto configureRotary = [this](juce::Slider& slider, juce::Colour accent)
@@ -656,6 +657,8 @@ void MainComponent::startProcessing()
         static_cast<float>(naturalVibratoSlider.getValue() / 100.0);
     const float humanize =
         static_cast<float>(humanizeSlider.getValue() / 100.0);
+    const int transposeSemitones =
+        static_cast<int>(transposeSlider.getValue());
     auto safeThis = juce::Component::SafePointer<MainComponent>(this);
 
     setProcessingState(true);
@@ -676,7 +679,8 @@ void MainComponent::startProcessing()
          retuneSpeed,
          flexTune,
          naturalVibrato,
-         humanize]
+         humanize,
+         transposeSemitones]
         {
             bool succeeded = false;
             juce::String message;
@@ -705,7 +709,8 @@ void MainComponent::startProcessing()
                         true,
                         flexTune,
                         naturalVibrato,
-                        humanize);
+                        humanize,
+                        transposeSemitones);
 
                 if (correction.samples.size() != reader.getSamples().size() ||
                     correction.frameAnalysis.empty() ||
@@ -748,6 +753,7 @@ void MainComponent::setProcessingState(bool isProcessing)
     retuneSpeedSlider.setEnabled(!processing);
     flexTuneSlider.setEnabled(!processing);
     naturalVibratoSlider.setEnabled(!processing);
+    transposeSlider.setEnabled(!processing);
     processButton.setButtonText(
         processing ? "Processing..." : "Process and export");
     updateProcessButton();
