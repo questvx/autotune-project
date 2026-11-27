@@ -50,8 +50,7 @@ public:
         bool phaseContinuityEnabled = true,
         float flexTune = 0.0f,
         float naturalVibrato = 0.0f,
-        float humanize = 0.0f,
-        int transposeSemitones = 0
+        float humanize = 0.0f
     );
 
     static AutoPitchCorrectionResult process(
@@ -67,7 +66,6 @@ public:
         bool phaseContinuityEnabled = true,
         float flexTune = 0.0f,
         float naturalVibrato = 0.0f,
-        float humanize = 0.0f,
-        int transposeSemitones = 0
+        float humanize = 0.0f
     );
 };

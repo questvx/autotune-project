@@ -358,13 +358,17 @@ półtonów bez zmiany długości nagrania.
 Implementacja:
 - Suwak Transpose w GUI wybiera całkowitą wartość od -12 do +12
   półtonów; wartość początkowa 0 oznacza brak transpozycji.
-- Współczynnik transpozycji jest łączony z bieżącym współczynnikiem
-  korekcji PSOLA. Pozwala to zachować czas trwania sygnału, zamiast
-  zmieniać wysokość przez zmianę szybkości odtwarzania.
-- Przesunięcie jest jednakowe w obu kanałach stereo i jest niezależne
-  od ustawień Flex Tune, Natural Vibrato oraz Humanize.
+- Transpozycja jest osobnym etapem po automatycznej korekcji i nie
+  korzysta z detektora F0 ani decyzji o dźwięczności ramki.
+- Pełnopasmowy shifter używa STFT, vocodera fazowego i zmiany
+  częstotliwości próbkowania po time-stretchingu, aby zmienić wysokość
+  bez zmiany końcowej długości nagrania.
+- Ten sam przebieg fazy jest współdzielony przez kanały stereo.
+- Transpozycja obejmuje również materiał bez określonego F0, szum i
+  transjenty; może przez to zmienić barwę i charakter ataku dźwięków.
 
 Weryfikacja:
-- Test syntetycznego tonu 440 Hz sprawdza przesunięcie o +1 i -1 półton
-  w obu kanałach stereo.
+- Test stereo sprawdza tony 440 Hz i 1370 Hz (poza zakresem detekcji
+  F0), przesunięcia o +/-1 oraz +/-12 półtonów, długość wyjścia i
+  zachowanie identycznego sygnału dla ustawienia 0.
 - Zakres API jest walidowany; wartości poza -12..+12 są odrzucane.

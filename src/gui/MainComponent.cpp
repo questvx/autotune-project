@@ -1,6 +1,7 @@
 #include "MainComponent.h"
 
 #include "dsp/pitchCorrection/AutoPitchCorrector.h"
+#include "dsp/pitchShifter/FullBandPitchShifter.h"
 #include "scale/Scale.h"
 #include "wavReader/WavReader.h"
 #include "wavWriter/WavWriter.h"
@@ -709,8 +710,7 @@ void MainComponent::startProcessing()
                         true,
                         flexTune,
                         naturalVibrato,
-                        humanize,
-                        transposeSemitones);
+                        humanize);
 
                 if (correction.samples.size() != reader.getSamples().size() ||
                     correction.frameAnalysis.empty() ||
@@ -719,18 +719,32 @@ void MainComponent::startProcessing()
                 {
                     message = "Pitch correction returned invalid output.";
                 }
-                else if (!WavWriter::writeFloatWav(
-                             outputPath,
-                             reader.getSampleRate(),
-                             correction.samples,
-                             reader.getChannels()))
-                {
-                    message = "Could not write the output WAV file.";
-                }
                 else
                 {
-                    succeeded = true;
-                    message = "Finished: " + outputName;
+                    const std::vector<float> outputSamples =
+                        transposeSemitones == 0
+                        ? correction.samples
+                        : FullBandPitchShifter::processInterleaved(
+                              correction.samples,
+                              reader.getChannels(),
+                              transposeSemitones);
+                    if (outputSamples.size() != correction.samples.size())
+                    {
+                        message = "Could not transpose the output audio.";
+                    }
+                    else if (!WavWriter::writeFloatWav(
+                                 outputPath,
+                                 reader.getSampleRate(),
+                                 outputSamples,
+                                 reader.getChannels()))
+                    {
+                        message = "Could not write the output WAV file.";
+                    }
+                    else
+                    {
+                        succeeded = true;
+                        message = "Finished: " + outputName;
+                    }
                 }
             }
 

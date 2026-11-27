@@ -54,6 +54,7 @@ target_sources(
     PRIVATE
         src/gui/Main.cpp
         src/gui/MainComponent.cpp
+        src/dsp/pitchShifter/FullBandPitchShifter.cpp
         ${AUTO_TUNE_CORE_SOURCES}
 )
 
@@ -72,6 +73,7 @@ target_link_libraries(
     AutoTuneStandalone
     PRIVATE
         juce::juce_gui_extra
+        juce::juce_dsp
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags
 )
@@ -98,6 +100,7 @@ if(BUILD_TESTING)
     add_executable(
         PitchAnalysisDiagnostics
         tests/PitchAnalysisDiagnostics.cpp
+        src/dsp/pitchShifter/FullBandPitchShifter.cpp
         src/wavReader/WavReader.cpp
         src/wavWriter/WavWriter.cpp
         src/dsp/frameGenerator/FrameGenerator.cpp
@@ -117,6 +120,7 @@ if(BUILD_TESTING)
     )
 
     target_include_directories(PitchAnalysisDiagnostics PRIVATE src)
+    target_link_libraries(PitchAnalysisDiagnostics PRIVATE juce::juce_dsp)
     add_test(NAME PitchAnalysisDiagnostics COMMAND PitchAnalysisDiagnostics)
     set_tests_properties(
         PitchAnalysisDiagnostics

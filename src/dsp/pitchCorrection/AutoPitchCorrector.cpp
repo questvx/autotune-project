@@ -269,8 +269,7 @@ AutoPitchCorrectionResult AutoPitchCorrector::processInterleaved(
     bool phaseContinuityEnabled,
     float flexTune,
     float naturalVibrato,
-    float humanize,
-    int transposeSemitones)
+    float humanize)
 {
     if (channelCount != 1 && channelCount != 2)
         return {};
@@ -295,8 +294,7 @@ AutoPitchCorrectionResult AutoPitchCorrector::processInterleaved(
             phaseContinuityEnabled,
             flexTune,
             naturalVibrato,
-            humanize,
-            transposeSemitones);
+            humanize);
     }
 
     const size_t frameCount = interleavedSamples.size() / channelCount;
@@ -335,8 +333,7 @@ AutoPitchCorrectionResult AutoPitchCorrector::processInterleaved(
         phaseContinuityEnabled,
         flexTune,
         naturalVibrato,
-        humanize,
-        transposeSemitones);
+        humanize);
     if (result.samples.size() != frameCount ||
         result.frameDiagnostics.empty())
     {
@@ -381,8 +378,7 @@ AutoPitchCorrectionResult AutoPitchCorrector::process(
     bool phaseContinuityEnabled,
     float flexTune,
     float naturalVibrato,
-    float humanize,
-    int transposeSemitones)
+    float humanize)
 {
     AutoPitchCorrectionResult result;
     if (samples.empty() ||
@@ -406,9 +402,7 @@ AutoPitchCorrectionResult AutoPitchCorrector::process(
         naturalVibrato > 1.0f ||
         !std::isfinite(humanize) ||
         humanize < 0.0f ||
-        humanize > 1.0f ||
-        transposeSemitones < -12 ||
-        transposeSemitones > 12)
+        humanize > 1.0f)
     {
         return result;
     }
@@ -450,10 +444,6 @@ AutoPitchCorrectionResult AutoPitchCorrector::process(
     const float vibratoBaselineAlpha = 1.0f - std::exp(
         -2.0f * static_cast<float>(std::acos(-1.0)) * 2.0f *
         static_cast<float>(hopSize) / sampleRate);
-    const float transposeRatio = std::pow(
-        2.0f,
-        static_cast<float>(transposeSemitones) / 12.0f);
-
     for (size_t frameIndex = 0; frameIndex < frames.size(); ++frameIndex)
     {
         const AudioFrame& frame = frames[frameIndex];
@@ -545,18 +535,14 @@ AutoPitchCorrectionResult AutoPitchCorrector::process(
                 humanizedRetuneSpeed);
         diagnostics.smoothedCorrectionCents = smoothedCorrection;
 
-        const float totalCorrectionCents =
-            smoothedCorrection +
-            static_cast<float>(transposeSemitones) * 100.0f;
         const float ratio = std::pow(
             2.0f,
-            smoothedCorrection / 1200.0f) *
-            transposeRatio;
+            smoothedCorrection / 1200.0f);
         if (!std::isfinite(ratio) || ratio <= 0.0f)
             return {};
 
         const bool needsPitchShift = tracked.voiced &&
-            std::abs(totalCorrectionCents) >
+            std::abs(smoothedCorrection) >
                 minimumEffectiveCorrectionCents;
         std::vector<float> correctedFrame;
         if (needsPitchShift)
@@ -597,7 +583,7 @@ AutoPitchCorrectionResult AutoPitchCorrector::process(
                 result.samples,
                 windowSum,
                 frameStart,
-                tracked.targetFrequency * transposeRatio,
+                tracked.targetFrequency,
                 sampleRate)
             : PhaseAlignmentResult{};
 

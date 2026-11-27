@@ -38,15 +38,15 @@ cmake --build build --config Debug --target AutoTuneStandalone
 .\build\AutoTuneStandalone_artefacts\Debug\AutoTune.exe
 ```
 
-The standalone interface uses a compact tuner-style layout. It lets you choose a mono or stereo input WAV and output path, set the root note and major/minor scale, and adjust Retune Speed, Flex Tune, Natural Vibrato, Humanize, and Transpose. The Transpose slider shifts the corrected audio by whole semitones from -12 to +12, with 0 as the default. Stereo files retain both channels: the channel with greater total energy supplies the shared pitch analysis, and both channels use the same pitch marks, correction ratio, and phase shift to avoid stereo image drift. Flex Tune keeps small pitch deviations more natural: at 100%, correction is suppressed within 30 cents, fades in smoothly from 30 to 60 cents, and remains full above 60 cents. Natural Vibrato preserves a percentage of the detected input vibrato, where 0% flattens it and 100% preserves it fully. Humanize gradually reduces correction response during a sustained note, reaching its full effect after one second; it does not add random pitch variation, and 0% preserves the existing Retune Speed behavior. A waveform preview is shown for the selected audio. Processing runs in the background; WAV files with more than two channels are not supported.
+The standalone interface uses a compact tuner-style layout. It lets you choose a mono or stereo input WAV and output path, set the root note and major/minor scale, and adjust Retune Speed, Flex Tune, Natural Vibrato, Humanize, and Transpose. The Transpose slider applies a fixed full-band pitch shift from -12 to +12 semitones, with 0 as the default. It runs after automatic pitch correction and does not depend on pitch detection, so it also shifts unvoiced material and other sound in the file; timbre and transients may change. Stereo channels use a shared phase trajectory. Stereo files retain both channels: the channel with greater total energy supplies the shared pitch analysis, and both channels use the same pitch marks, correction ratio, and phase shift to avoid stereo image drift. Flex Tune keeps small pitch deviations more natural: at 100%, correction is suppressed within 30 cents, fades in smoothly from 30 to 60 cents, and remains full above 60 cents. Natural Vibrato preserves a percentage of the detected input vibrato, where 0% flattens it and 100% preserves it fully. Humanize gradually reduces correction response during a sustained note, reaching its full effect after one second; it does not add random pitch variation, and 0% preserves the existing Retune Speed behavior. A waveform preview is shown for the selected audio. Processing runs in the background; WAV files with more than two channels are not supported.
 
-Input Type, Transpose, and Low Latency are shown as work in progress. They are disabled and do not affect the rendered audio yet.
+Input Type and Low Latency are work in progress. They are disabled and do not affect the rendered audio.
 
 The original `AutoTuneEngineering` command-line target remains available. Its input path and settings are configured in `src/main.cpp`.
 
 ## Tests
 
-The `PSOLADiagnostics` CTest target checks pitch shifting on the included 220 Hz, 440 Hz, and 880 Hz sine WAV files, along with overlap-add coverage on a constant signal. `PitchAnalysisDiagnostics` checks pitch detection across the frames of the 220 Hz and 880 Hz WAV files, verifies scale-target selection from measured pitch, checks C#4-to-C4 correction and transparent pass-through, verifies Flex Tune behavior for small, transitional, and large pitch deviations, checks natural vibrato preservation and no-vibrato pass-through, verifies Humanize preserves the configured Retune Speed at 0% and responds more slowly to pitch modulation on sustained notes, exercises frame stabilization, and diagnoses phase alignment on a steady sine and a changing-pitch signal with a short gap. In VS Code, configure the project with CMake Tools, build the desired diagnostics target, then run its test from the Testing view.
+The `PSOLADiagnostics` CTest target checks pitch shifting on the included 220 Hz, 440 Hz, and 880 Hz sine WAV files, along with overlap-add coverage on a constant signal. `PitchAnalysisDiagnostics` checks pitch detection across the frames of the 220 Hz and 880 Hz WAV files, verifies scale-target selection from measured pitch, checks C#4-to-C4 correction and transparent pass-through, verifies Flex Tune behavior for small, transitional, and large pitch deviations, checks natural vibrato preservation and no-vibrato pass-through, verifies Humanize preserves the configured Retune Speed at 0% and responds more slowly to pitch modulation on sustained notes, exercises frame stabilization, tests full-band transpose on stereo tones both inside and above the pitch detector's frequency range, and diagnoses phase alignment on a steady sine and a changing-pitch signal with a short gap. In VS Code, configure the project with CMake Tools, build the desired diagnostics target, then run its test from the Testing view.
 
 To render a mono vocal twice with identical pitch analysis and correction settings, once with phase alignment and once without it, run from the repository root:
 
@@ -78,7 +78,7 @@ src/
   dsp/
     frameGenerator/                Audio framing
     pitchAnalysis/                 Pitch, note, and deviation analysis
-    pitchShifter/                  Pitch-period marking and experimental PSOLA
+    pitchShifter/                  Full-band phase-vocoder shift and PSOLA
     pitchCorrection/               Pitch correction module
     retuneSpeed/                   Correction speed module
   scale/                           Musical scale definitions
@@ -91,6 +91,8 @@ external/dr_wav.h                  Bundled WAV library
 - The standalone app and command-line example support mono and stereo WAV files. The command-line example uses a hard-coded input file from the `assets` folder.
 - Analysis settings, scale, and test pitch-shifting values are configured in the source code.
 - PSOLA and per-frame correction are experimental; vocal quality and transitions between changing pitches have not yet been validated.
-- There is no graphical interface or real-time audio processing yet. The automatic-correction diagnostic currently uses a synthetic sine signal.
+- Processing is offline: playback-based processing and microphone input are not supported yet.
+- Input Type and Low Latency controls are placeholders and remain disabled.
+- PSOLA and per-frame correction are experimental; vocal quality and transitions between changing pitches have not yet been validated across complete recordings.
 
 Potential next steps include adding CLI configuration, expanding audio input support, and adding diagnostics for variable-pitch and vocal signals.

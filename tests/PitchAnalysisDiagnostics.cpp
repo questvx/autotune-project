@@ -1,6 +1,7 @@
 #include "wavReader/WavReader.h"
 #include "dsp/frameGenerator/FrameGenerator.h"
 #include "dsp/pitchCorrection/AutoPitchCorrector.h"
+#include "dsp/pitchShifter/FullBandPitchShifter.h"
 #include "dsp/pitchCorrection/PitchFrameStabilizer.h"
 #include "dsp/pitchAnalysis/pitchAnalyzer/PitchAnalyzer.h"
 #include "dsp/pitchAnalysis/pitchDetector/PitchDetector.h"
@@ -610,45 +611,72 @@ float estimatePositiveCrossingFrequency(
         static_cast<float>(end - start);
 }
 
-bool checkStereoTransposeSemitoneSteps()
+float estimatePositiveCrossingFrequencyInRange(
+    const std::vector<float>& samples,
+    float sampleRate,
+    double startSeconds,
+    double endSeconds)
 {
-    constexpr float inputFrequency = 440.0f;
+    if (endSeconds <= startSeconds)
+        return 0.0f;
+
+    const size_t start = static_cast<size_t>(
+        startSeconds * static_cast<double>(sampleRate));
+    const size_t end = std::min(
+        samples.size(),
+        static_cast<size_t>(
+            endSeconds * static_cast<double>(sampleRate)));
+    if (end <= start)
+        return 0.0f;
+
+    size_t crossings = 0;
+    for (size_t i = start + 1; i < end; ++i)
+    {
+        if (samples[i - 1] <= 0.0f && samples[i] > 0.0f)
+            ++crossings;
+    }
+
+    return static_cast<float>(crossings) * sampleRate /
+        static_cast<float>(end - start);
+}
+
+bool checkFullBandTransposeShiftsUnvoicedAudio()
+{
     constexpr size_t frameCount =
         static_cast<size_t>(expectedSampleRate);
+    constexpr size_t transitionFrame = frameCount / 2;
+    constexpr float detectedToneFrequency = 440.0f;
+    constexpr float outOfRangeToneFrequency = 1370.0f;
     std::vector<float> input(frameCount * 2);
     for (size_t frame = 0; frame < frameCount; ++frame)
     {
-        const float sample = 0.5f * std::sin(
-            2.0f * pi * inputFrequency *
-            static_cast<float>(frame) / expectedSampleRate);
-        input[frame * 2] = sample;
-        input[frame * 2 + 1] = -sample;
+        const float frequency = frame < transitionFrame
+            ? detectedToneFrequency
+            : outOfRangeToneFrequency;
+        const float phase =
+            2.0f * pi * frequency *
+            static_cast<float>(frame) / expectedSampleRate;
+        input[frame * 2] = 0.5f * std::sin(phase);
+        input[frame * 2 + 1] =
+            0.3f * std::sin(phase + 0.7f);
     }
 
-    const Scale aMajor(69, ScaleType::Major);
-    bool passed = true;
+    const std::vector<float> unchanged =
+        FullBandPitchShifter::processInterleaved(input, 2, 0);
+    const bool identityPassed = unchanged == input;
+    const bool invalidRangePassed =
+        FullBandPitchShifter::processInterleaved(input, 2, 13).empty();
+    bool passed = identityPassed && invalidRangePassed;
     for (const int semitones : {1, -1, 12, -12})
     {
-        const AutoPitchCorrectionResult result =
-            AutoPitchCorrector::processInterleaved(
+        const std::vector<float> shifted =
+            FullBandPitchShifter::processInterleaved(
                 input,
                 2,
-                expectedSampleRate,
-                aMajor,
-                2048,
-                512,
-                50.0f,
-                1000.0f,
-                1.0f,
-                true,
-                true,
-                0.0f,
-                0.0f,
-                0.0f,
                 semitones);
-        if (result.samples.size() != input.size())
+        if (shifted.size() != input.size())
         {
-            std::cout << "Stereo transpose " << semitones
+            std::cout << "Full-band transpose " << semitones
                       << " semitone(s): FAIL, invalid output\n";
             passed = false;
             continue;
@@ -658,46 +686,50 @@ bool checkStereoTransposeSemitoneSteps()
         std::vector<float> rightChannel(frameCount);
         for (size_t frame = 0; frame < frameCount; ++frame)
         {
-            leftChannel[frame] = result.samples[frame * 2];
-            rightChannel[frame] = result.samples[frame * 2 + 1];
+            leftChannel[frame] = shifted[frame * 2];
+            rightChannel[frame] = shifted[frame * 2 + 1];
         }
 
-        const float expectedFrequency = inputFrequency * std::pow(
+        const float pitchRatio = std::pow(
             2.0f,
             static_cast<float>(semitones) / 12.0f);
-        const float leftFrequency = estimatePositiveCrossingFrequency(
-            leftChannel,
-            expectedSampleRate);
-        const float rightFrequency = estimatePositiveCrossingFrequency(
-            rightChannel,
-            expectedSampleRate);
-        const bool stepPassed =
-            std::abs(leftFrequency - expectedFrequency) <
-                expectedFrequency * frequencyTolerance &&
-            std::abs(rightFrequency - expectedFrequency) <
-                expectedFrequency * frequencyTolerance;
-        std::cout << "Stereo transpose " << semitones
+        const float expectedDetectedTone =
+            detectedToneFrequency * pitchRatio;
+        const float expectedOutOfRangeTone =
+            outOfRangeToneFrequency * pitchRatio;
+        bool stepPassed = true;
+        for (const std::vector<float>* channel :
+             {&leftChannel, &rightChannel})
+        {
+            const float detectedTone = estimatePositiveCrossingFrequencyInRange(
+                *channel,
+                expectedSampleRate,
+                0.1,
+                0.4);
+            const float outOfRangeTone =
+                estimatePositiveCrossingFrequencyInRange(
+                    *channel,
+                    expectedSampleRate,
+                    0.6,
+                    0.9);
+            stepPassed =
+                stepPassed &&
+                std::abs(detectedTone - expectedDetectedTone) <
+                    expectedDetectedTone * frequencyTolerance &&
+                std::abs(outOfRangeTone - expectedOutOfRangeTone) <
+                    expectedOutOfRangeTone * frequencyTolerance;
+        }
+        std::cout << "Full-band stereo transpose " << semitones
                   << " semitone(s): "
                   << (stepPassed ? "PASS" : "FAIL")
-                  << ", L=" << leftFrequency
-                  << " Hz, R=" << rightFrequency
-                  << " Hz, expected=" << expectedFrequency << " Hz\n";
-        if (!stepPassed && !result.frameDiagnostics.empty())
-        {
-            const PitchCorrectionFrameDiagnostics& diagnostics =
-                result.frameDiagnostics[result.frameDiagnostics.size() / 2];
-            std::cout << "Transpose diagnostics: voiced="
-                      << diagnostics.voiced
-                      << ", pitch shift="
-                      << diagnostics.pitchShiftApplied
-                      << ", ratio=" << diagnostics.pitchRatio
-                      << ", tracked=" << diagnostics.trackedFrequency
-                      << " Hz, target=" << diagnostics.targetFrequency
-                      << " Hz\n";
-        }
+                  << ", expected " << expectedDetectedTone
+                  << " Hz and " << expectedOutOfRangeTone << " Hz\n";
         passed = stepPassed && passed;
     }
 
+    std::cout << "Transpose identity and range validation: "
+              << ((identityPassed && invalidRangePassed) ? "PASS" : "FAIL")
+              << '\n';
     return passed;
 }
 
@@ -2802,7 +2834,7 @@ int main(int argc, char** argv)
     passed = checkTargetSelectionUsesMeasuredPitch() && passed;
     passed = checkAutomaticCorrection() && passed;
     passed = checkStereoCorrectionUsesLinkedPitchControl() && passed;
-    passed = checkStereoTransposeSemitoneSteps() && passed;
+    passed = checkFullBandTransposeShiftsUnvoicedAudio() && passed;
     passed = checkStereoWavReaderPreservesInterleavedChannels() && passed;
     passed = checkFlexTuneSoftZone() && passed;
     passed = checkNaturalVibratoPreservation() && passed;
