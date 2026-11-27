@@ -8,8 +8,13 @@ RetuneSpeed::RetuneSpeed(float speed)
 
 float RetuneSpeed::process(float targetCorrection)
 {
+    return process(targetCorrection, speed);
+}
+
+float RetuneSpeed::process(float targetCorrection, float response)
+{
     currentCorrection +=
-        (targetCorrection - currentCorrection) * speed;
+        (targetCorrection - currentCorrection) * response;
 
     return currentCorrection;
 }

@@ -19,6 +19,9 @@ namespace
 constexpr float minimumEffectiveCorrectionCents = 5.0f;
 constexpr float maximumFlexTuneDeadZoneCents = 30.0f;
 constexpr float maximumFlexTuneTransitionCents = 30.0f;
+constexpr float humanizeStartSeconds = 0.25f;
+constexpr float humanizeFullEffectSeconds = 1.0f;
+constexpr float maximumHumanizeSpeedReduction = 0.9f;
 
 float applyFlexTune(float correctionCents, float flexTune)
 {
@@ -164,7 +167,8 @@ AutoPitchCorrectionResult AutoPitchCorrector::process(
     bool phaseAlignmentEnabled,
     bool phaseContinuityEnabled,
     float flexTune,
-    float naturalVibrato)
+    float naturalVibrato,
+    float humanize)
 {
     AutoPitchCorrectionResult result;
     if (samples.empty() ||
@@ -185,7 +189,10 @@ AutoPitchCorrectionResult AutoPitchCorrector::process(
         flexTune > 1.0f ||
         !std::isfinite(naturalVibrato) ||
         naturalVibrato < 0.0f ||
-        naturalVibrato > 1.0f)
+        naturalVibrato > 1.0f ||
+        !std::isfinite(humanize) ||
+        humanize < 0.0f ||
+        humanize > 1.0f)
     {
         return result;
     }
@@ -222,6 +229,8 @@ AutoPitchCorrectionResult AutoPitchCorrector::process(
     bool hasVibratoBaseline = false;
     int vibratoTargetMidi = -1;
     float vibratoBaselineCents = 0.0f;
+    int humanizeTargetMidi = -1;
+    size_t humanizeNoteFrames = 0;
     const float vibratoBaselineAlpha = 1.0f - std::exp(
         -2.0f * static_cast<float>(std::acos(-1.0)) * 2.0f *
         static_cast<float>(hopSize) / sampleRate);
@@ -247,6 +256,33 @@ AutoPitchCorrectionResult AutoPitchCorrector::process(
                     tracked.frequency / tracked.targetFrequency))
             : 0.0f;
         diagnostics.requestedCorrectionCents = targetCorrection;
+
+        float humanizeProgress = 0.0f;
+        if (tracked.voiced)
+        {
+            if (humanizeTargetMidi != tracked.targetNote.midi)
+            {
+                humanizeTargetMidi = tracked.targetNote.midi;
+                humanizeNoteFrames = 0;
+            }
+
+            const float noteDurationSeconds =
+                static_cast<float>(humanizeNoteFrames) *
+                static_cast<float>(hopSize) / sampleRate;
+            humanizeProgress = std::max(
+                0.0f,
+                std::min(
+                    1.0f,
+                    (noteDurationSeconds - humanizeStartSeconds) /
+                        (humanizeFullEffectSeconds -
+                         humanizeStartSeconds)));
+            ++humanizeNoteFrames;
+        }
+        else
+        {
+            humanizeTargetMidi = -1;
+            humanizeNoteFrames = 0;
+        }
 
         float preservedVibratoCents = 0.0f;
         if (tracked.voiced &&
@@ -281,9 +317,13 @@ AutoPitchCorrectionResult AutoPitchCorrector::process(
 
         const float vibratoAwareCorrection =
             targetCorrection + preservedVibratoCents;
+        const float humanizedRetuneSpeed = retuneSpeed *
+            (1.0f - maximumHumanizeSpeedReduction *
+                humanize * humanizeProgress);
         const float smoothedCorrection =
             correctionSmoother.process(
-                applyFlexTune(vibratoAwareCorrection, flexTune));
+                applyFlexTune(vibratoAwareCorrection, flexTune),
+                humanizedRetuneSpeed);
         diagnostics.smoothedCorrectionCents = smoothedCorrection;
 
         const float ratio = std::pow(

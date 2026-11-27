@@ -48,6 +48,7 @@ public:
         bool phaseAlignmentEnabled = true,
         bool phaseContinuityEnabled = true,
         float flexTune = 0.0f,
-        float naturalVibrato = 0.0f
+        float naturalVibrato = 0.0f,
+        float humanize = 0.0f
     );
 };

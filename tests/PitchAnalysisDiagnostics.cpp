@@ -14,6 +14,7 @@
 #include <filesystem>
 #include <iostream>
 #include <limits>
+#include <numeric>
 #include <sstream>
 #include <string>
 #include <system_error>
@@ -1374,6 +1375,131 @@ bool checkNaturalVibratoPreservation()
     return passed;
 }
 
+bool checkHumanizeSustainedPitchResponse()
+{
+    constexpr float targetFrequency = 261.6256f;
+    constexpr float pitchVariationCents = 20.0f;
+    constexpr float pitchVariationRateHz = 1.0f;
+    constexpr float durationSeconds = 3.0f;
+    const size_t sampleCount = static_cast<size_t>(
+        expectedSampleRate * durationSeconds);
+    const size_t firstMeasuredFrame =
+        static_cast<size_t>(expectedSampleRate * 1.5f / 512.0f);
+    const size_t lastMeasuredFrame =
+        static_cast<size_t>(expectedSampleRate * 2.8f / 512.0f);
+    const Scale cMajor(60, ScaleType::Major);
+
+    std::vector<float> input(sampleCount);
+    double phase = 0.0;
+    for (size_t i = 0; i < input.size(); ++i)
+    {
+        const float time =
+            static_cast<float>(i) / expectedSampleRate;
+        const float deviationCents = pitchVariationCents *
+            std::sin(2.0f * pi * pitchVariationRateHz * time);
+        const float inputFrequency = targetFrequency *
+            std::pow(2.0f, deviationCents / 1200.0f);
+        input[i] = 0.5f * static_cast<float>(std::sin(phase));
+        phase += 2.0 * pi * inputFrequency / expectedSampleRate;
+    }
+
+    const auto render = [&](float humanize)
+    {
+        return AutoPitchCorrector::process(
+            input,
+            expectedSampleRate,
+            cMajor,
+            2048,
+            512,
+            50.0f,
+            1000.0f,
+            1.0f,
+            true,
+            true,
+            0.0f,
+            0.0f,
+            humanize);
+    };
+
+    const AutoPitchCorrectionResult defaultRender =
+        AutoPitchCorrector::process(
+            input,
+            expectedSampleRate,
+            cMajor,
+            2048,
+            512,
+            50.0f,
+            1000.0f,
+            1.0f);
+    const AutoPitchCorrectionResult zeroHumanizeRender = render(0.0f);
+    const AutoPitchCorrectionResult humanizedRender = render(1.0f);
+    if (defaultRender.samples != zeroHumanizeRender.samples ||
+        humanizedRender.frameDiagnostics.size() <= lastMeasuredFrame)
+    {
+        std::cout << "Humanize: zero-percent compatibility or output "
+                     "validation FAIL\n";
+        return false;
+    }
+
+    auto measureOutputVariation = [&](const AutoPitchCorrectionResult& result)
+    {
+        FrameGenerator frameGenerator;
+        PitchDetector pitchDetector;
+        const std::vector<AudioFrame> outputFrames =
+            frameGenerator.generateFrames(result.samples, 2048, 512);
+        std::vector<double> deviations;
+        for (size_t i = firstMeasuredFrame;
+             i < lastMeasuredFrame && i < outputFrames.size();
+             ++i)
+        {
+            const PitchResult pitch = pitchDetector.detectPitch(
+                outputFrames[i],
+                expectedSampleRate,
+                50.0f,
+                1000.0f);
+            if (pitch.correlation < 0.75f ||
+                !std::isfinite(pitch.frequency) ||
+                pitch.frequency <= 0.0f)
+            {
+                continue;
+            }
+
+            deviations.push_back(
+                1200.0 * std::log2(
+                    pitch.frequency / targetFrequency));
+        }
+
+        if (deviations.empty())
+            return 0.0;
+
+        const double mean = std::accumulate(
+            deviations.begin(),
+            deviations.end(),
+            0.0) / static_cast<double>(deviations.size());
+        double variance = 0.0;
+        for (const double deviation : deviations)
+        {
+            const double difference = deviation - mean;
+            variance += difference * difference;
+        }
+        return std::sqrt(variance / static_cast<double>(deviations.size()));
+    };
+
+    const double regularVariation =
+        measureOutputVariation(zeroHumanizeRender);
+    const double humanizedVariation =
+        measureOutputVariation(humanizedRender);
+    const bool passed =
+        humanizedRender.samples.size() == input.size() &&
+        regularVariation > 0.0 &&
+        humanizedVariation > regularVariation * 1.15 + 1.0;
+    std::cout << "Humanize: sustained output pitch variation "
+              << regularVariation << " -> " << humanizedVariation
+              << " cents, "
+              << (passed ? "PASS" : "FAIL") << '\n';
+    return passed;
+}
+
 bool checkUnvoicedPassThrough()
 {
     const std::vector<float> input(
@@ -1677,6 +1803,7 @@ int main(int argc, char** argv)
     passed = checkAutomaticCorrection() && passed;
     passed = checkFlexTuneSoftZone() && passed;
     passed = checkNaturalVibratoPreservation() && passed;
+    passed = checkHumanizeSustainedPitchResponse() && passed;
     passed = checkUnvoicedPassThrough() && passed;
     passed = checkInScaleToneIsUnchanged() && passed;
     passed = checkPitchFrameStabilizer() && passed;
